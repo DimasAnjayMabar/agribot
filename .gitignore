@@ -1,0 +1,6 @@
+model
+chroma_db
+venv
+.env
+agribot.log
+search_db.py

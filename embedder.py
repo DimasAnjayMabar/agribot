@@ -1,0 +1,901 @@
+#!/usr/bin/env python3
+"""
+Disease Journal PDF Embedder Pipeline
+Graph DB: Neo4j | Vector DB: ChromaDB
+Structure:
+  Neo4j  -> Node Jurnal + Node Isi + Relasi HAS_SECTION & NEXT
+  ChromaDB -> collection konten_isi (embedding konten_chunk)
+
+Fitur Baru:
+1. Sistem Hashing MD5: Mencegah duplikasi file dengan sidik jari unik
+2. Global Chunk Counter: Memperbaiki DuplicateIDError dengan ID unik per dokumen
+"""
+
+import hashlib
+import re
+import uuid
+from pathlib import Path
+from typing import List, Dict, Optional
+from dataclasses import dataclass
+import torch
+import pdfplumber
+import chromadb
+from sentence_transformers import SentenceTransformer
+from neo4j import GraphDatabase
+
+############################################################
+# CONFIGURATION
+############################################################
+
+CONFIG = {
+    "embedding_model": "intfloat/multilingual-e5-large",
+    "device": "cuda" if torch.cuda.is_available() else "cpu",
+    "max_tokens_per_chunk": 512,
+
+    # ChromaDB
+    "chroma_path": "./chroma_db",
+    "chroma_collection": "konten_isi",
+
+    # Neo4j
+    "neo4j_uri": "neo4j://127.0.0.1:7687",
+    "neo4j_user": "neo4j",
+    "neo4j_password": "password",
+
+    # Dataset
+    "dataset_path": "./dataset",
+}
+
+############################################################
+# DATA STRUCTURES
+############################################################
+
+@dataclass
+class JurnalNode:
+    """Node Jurnal di Neo4j: {id, judul, doi, penulis, tanggal_rilis, file_hash}"""
+    id: str
+    judul: str
+    doi: Optional[str]
+    penulis: str
+    tanggal_rilis: str          # format: "YYYY" atau "YYYY-MM-DD"
+    source_file: str
+    file_hash: str               # MD5 hash untuk deteksi duplikasi
+
+@dataclass
+class IsiNode:
+    """Node Isi di Neo4j: {id, sub_judul, konten_chunk, halaman}"""
+    id: str
+    jurnal_id: str
+    sub_judul: str
+    konten_chunk: str           # teks chunk (juga di-embed ke ChromaDB)
+    halaman: int                # halaman awal chunk
+
+############################################################
+# FILE HASHING (MD5) UNTUK DETEKSI DUPLIKASI
+############################################################
+
+def calculate_file_hash(file_path: str) -> str:
+    """
+    Menghitung MD5 hash dari file PDF.
+    Digunakan untuk mendeteksi apakah file sudah pernah diproses.
+    """
+    hash_md5 = hashlib.md5()
+    with open(file_path, "rb") as f:
+        # Baca file dalam chunk untuk efisiensi memori
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
+def is_file_processed(neo4j_driver, file_hash: str) -> bool:
+    """
+    Mengecek apakah file dengan hash tertentu sudah ada di Neo4j.
+    """
+    query = """
+    MATCH (j:Jurnal {file_hash: $file_hash})
+    RETURN count(j) > 0 AS exists
+    """
+    with neo4j_driver.session() as session:
+        result = session.run(query, file_hash=file_hash).single()
+        return result["exists"] if result else False
+
+############################################################
+# STEP 1 — PDF INGESTION (2-COLUMN AWARE)
+############################################################
+
+def _detect_column_split(words: List[Dict], page_width: float) -> Optional[float]:
+    """
+    Deteksi apakah halaman memiliki 2 kolom dengan mencari gap horizontal
+    di area tengah halaman (30%–70% lebar).
+
+    Cara kerja:
+    - Bagi lebar halaman menjadi 20 bucket.
+    - Bucket yang tidak mengandung kata di area tengah = kandidat gap kolom.
+    - Jika ada gap yang konsisten, kembalikan titik tengah gap sebagai pemisah kolom.
+    - Jika tidak ditemukan, kembalikan None (halaman 1 kolom).
+    """
+    if not words or page_width <= 0:
+        return None
+
+    bucket_count = 20
+    bucket_size = page_width / bucket_count
+    buckets = [0] * bucket_count
+
+    for w in words:
+        mid_x = (w['x0'] + w['x1']) / 2
+        idx = min(int(mid_x / bucket_size), bucket_count - 1)
+        buckets[idx] += 1
+
+    # Cari gap (bucket kosong) di area tengah halaman (30%-70%)
+    center_start = int(bucket_count * 0.30)
+    center_end   = int(bucket_count * 0.70)
+
+    gap_buckets = [
+        i for i in range(center_start, center_end)
+        if buckets[i] == 0
+    ]
+
+    if not gap_buckets:
+        return None
+
+    # Ambil tengah gap terpanjang sebagai titik pemisah kolom
+    gap_center_idx = gap_buckets[len(gap_buckets) // 2]
+    return (gap_center_idx + 0.5) * bucket_size
+
+
+def _group_words_into_lines(words: List[Dict], page_num: int,
+                             page_height: float) -> List[Dict]:
+    """
+    Kelompokkan words menjadi baris berdasarkan y_position.
+    Menyertakan page_height di tiap baris untuk keperluan scoring.
+    """
+    lines: List[Dict] = []
+    current_line: List[Dict] = []
+    current_y: Optional[float] = None
+
+    for word in sorted(words, key=lambda w: (w['top'], w['x0'])):
+        if current_y is None:
+            current_y = word['top']
+            current_line = [word]
+        elif abs(word['top'] - current_y) < 5:
+            current_line.append(word)
+        else:
+            if current_line:
+                lines.append(_build_line_dict(current_line, page_num, current_y, page_height))
+            current_y = word['top']
+            current_line = [word]
+
+    if current_line:
+        lines.append(_build_line_dict(current_line, page_num, current_y or 0, page_height))
+
+    return lines
+
+
+def parse_pdf_to_lines(pdf_path: str) -> List[Dict]:
+    """
+    Extract lines dari PDF dengan dukungan layout 2 kolom.
+
+    Strategi 2-kolom:
+    - Untuk tiap halaman, deteksi apakah ada pemisah kolom (gap horizontal).
+    - Jika ya: pisahkan words menjadi kolom kiri dan kanan, proses masing-masing
+      secara terpisah (kiri dulu, baru kanan) agar urutan kalimat tetap benar.
+    - Jika tidak: proses seperti biasa (sort by top, x0).
+    """
+    all_lines: List[Dict] = []
+
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf.pages, start=1):
+            words = page.extract_words(x_tolerance=3, y_tolerance=3, keep_blank_chars=False)
+            if not words:
+                continue
+
+            page_width  = float(page.width)
+            page_height = float(page.height)
+
+            # Deteksi titik pemisah kolom
+            col_split = _detect_column_split(words, page_width)
+
+            if col_split is not None:
+                # Layout 2 kolom: proses kolom kiri → kanan secara terpisah
+                left_words  = [w for w in words if w['x1'] <= col_split]
+                right_words = [w for w in words if w['x0'] >  col_split]
+
+                all_lines.extend(_group_words_into_lines(left_words,  page_num, page_height))
+                all_lines.extend(_group_words_into_lines(right_words, page_num, page_height))
+            else:
+                # Layout 1 kolom: proses normal
+                all_lines.extend(_group_words_into_lines(words, page_num, page_height))
+
+    return all_lines
+
+
+def _build_line_dict(words: List[Dict], page_num: int,
+                     y_pos: float, page_height: float = 0.0) -> Dict:
+    line_text = ' '.join(w['text'] for w in words)
+    avg_size  = sum(float(w.get('height', 10)) for w in words) / len(words)
+    is_bold   = any('bold' in str(w.get('fontname', '')).lower() for w in words)
+    return {
+        'text':        line_text.strip(),
+        'page':        page_num,
+        'font_size':   avg_size,
+        'is_bold':     is_bold,
+        'y_position':  y_pos,
+        'page_height': page_height,   # diperlukan untuk scoring subheading
+    }
+
+############################################################
+# STEP 2 — REMOVE BOILERPLATE
+############################################################
+
+BOILERPLATE_PATTERNS = [
+    r"Prosiding SEMNAS BIO",
+    r"ISSN",
+    r"Quo Vadis",
+    r"^\d+$",
+    r"^halaman\s+\d+",
+    r"©\s*\d{4}",
+    r"www\.",
+    r"http://",
+    r"https://",
+]
+
+def is_boilerplate(text: str) -> bool:
+    text = text.strip()
+    if len(text) < 3:
+        return True
+    for pattern in BOILERPLATE_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    return False
+
+def clean_lines(lines: List[Dict]) -> List[Dict]:
+    return [l for l in lines if not is_boilerplate(l["text"])]
+
+############################################################
+# STEP 3 — HEADING DETECTION (HEURISTIC SCORING)
+############################################################
+
+# Threshold skor minimum untuk dianggap sub-judul
+SUBHEADING_SCORE_THRESHOLD = 4
+
+def is_all_caps(text: str) -> bool:
+    """Cek apakah teks dominan UPPERCASE (>80% huruf kapital)."""
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return False
+    return sum(1 for c in letters if c.isupper()) / len(letters) > 0.8
+
+
+def compute_dominant_font_size(lines: List[Dict]) -> float:
+    """
+    Hitung modus (font size paling sering muncul) dari seluruh baris.
+    Digunakan sebagai ukuran font bodi normal.
+    """
+    from statistics import mode
+    sizes = [round(l["font_size"], 1) for l in lines if l.get("font_size")]
+    if not sizes:
+        return 10.0
+    try:
+        return mode(sizes)
+    except Exception:
+        return sorted(sizes)[len(sizes) // 2]
+
+
+def compute_normal_line_gap(lines: List[Dict]) -> float:
+    """
+    Hitung jarak baris normal (median selisih y_position antar baris berurutan
+    pada halaman yang sama). Digunakan sebagai acuan jarak vertikal normal.
+    """
+    gaps = []
+    for i in range(1, len(lines)):
+        if lines[i]["page"] == lines[i - 1]["page"]:
+            gap = lines[i]["y_position"] - lines[i - 1]["y_position"]
+            if gap > 0:
+                gaps.append(gap)
+    if not gaps:
+        return 12.0
+    gaps_sorted = sorted(gaps)
+    return gaps_sorted[len(gaps_sorted) // 2]
+
+
+def score_subheading(line: Dict,
+                     prev_line: Optional[Dict],
+                     dominant_font_size: float,
+                     normal_line_gap: float) -> int:
+    """
+    Hitung skor heuristik untuk menentukan apakah baris adalah sub-judul.
+
+    Aturan pembobotan:
+      +2  : Teks Bold
+      +2  : Jarak vertikal (top) > 1.5x jarak baris normal (baris berdiri sendiri)
+      +2  : Ukuran font > ukuran bodi dominan
+      +1  : Tidak diakhiri tanda titik (.)
+      +1  : Format UPPERCASE
+      -2  : Panjang karakter > 60 (asumsi paragraf)
+
+    Threshold: skor >= SUBHEADING_SCORE_THRESHOLD -> sub-judul baru
+    """
+    text = line["text"].strip()
+    score = 0
+
+    # +2: Bold
+    if line.get("is_bold"):
+        score += 2
+
+    # +2: Jarak vertikal > 1.5x normal (isolated line)
+    if prev_line and prev_line["page"] == line["page"]:
+        gap = line["y_position"] - prev_line["y_position"]
+        if gap > 1.5 * normal_line_gap:
+            score += 2
+    else:
+        # Baris pertama di halaman atau halaman berbeda -> dianggap isolated
+        score += 2
+
+    # +2: Font size lebih besar dari ukuran bodi dominan
+    if line.get("font_size", 0) > dominant_font_size:
+        score += 2
+
+    # +1: Tidak diakhiri titik
+    if not text.endswith('.'):
+        score += 1
+
+    # +1: UPPERCASE
+    if is_all_caps(text):
+        score += 1
+
+    # -2: Panjang karakter > 60 (kemungkinan paragraf bukan judul)
+    if len(text) > 60:
+        score -= 2
+
+    # -1: Subheading di bagian bawah halaman (y > 90% tinggi halaman).
+    # Subheading yang "tergantung" di akhir halaman biasanya bukan subheading asli.
+    page_height = line.get("page_height", 0)
+    if page_height > 0 and line["y_position"] > (page_height * 0.9):
+        score -= 1
+
+    return score
+
+
+def is_subheading(line: Dict,
+                  prev_line: Optional[Dict],
+                  dominant_font_size: float,
+                  normal_line_gap: float) -> bool:
+    """
+    Return True jika baris terdeteksi sebagai sub-judul berdasarkan skor heuristik.
+    Juga skip baris yang terlalu pendek (< 3 karakter).
+    """
+    text = line["text"].strip()
+    if len(text) < 3:
+        return False
+
+    score = score_subheading(line, prev_line, dominant_font_size, normal_line_gap)
+    return score >= SUBHEADING_SCORE_THRESHOLD
+
+############################################################
+# STEP 4 — TOKEN COUNTING & CHUNKING
+############################################################
+
+def count_tokens(text: str) -> int:
+    return len(text) // 4
+
+def split_text_word_safe(text: str, max_tokens: int) -> List[str]:
+    chunks: List[str] = []
+    current_chunk = ""
+    sentences = re.split(r'([.!?]+\s+)', text)
+
+    for i in range(0, len(sentences), 2):
+        sentence = sentences[i]
+        delimiter = sentences[i + 1] if i + 1 < len(sentences) else ""
+        full_sentence = sentence + delimiter
+
+        if current_chunk and count_tokens(current_chunk + full_sentence) > max_tokens:
+            chunks.append(current_chunk.strip())
+            current_chunk = full_sentence
+        else:
+            current_chunk += full_sentence
+
+        if count_tokens(current_chunk) > max_tokens:
+            words = current_chunk.split()
+            temp_chunk = ""
+            for word in words:
+                if count_tokens(temp_chunk + " " + word) > max_tokens:
+                    if temp_chunk:
+                        chunks.append(temp_chunk.strip())
+                        temp_chunk = word
+                    else:
+                        chunks.append(word)
+                        temp_chunk = ""
+                else:
+                    temp_chunk += " " + word if temp_chunk else word
+            current_chunk = temp_chunk
+
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+
+    return chunks
+
+############################################################
+# STEP 5 — BUILD ISI NODES (DENGAN GLOBAL CHUNK COUNTER)
+############################################################
+
+def deterministic_id(jurnal_id: str, sub_judul: str, chunk_index: int) -> str:
+    """
+    Membuat ID deterministik untuk IsiNode.
+    Dengan chunk_index global per dokumen, ID akan selalu unik.
+    """
+    base = f"{jurnal_id}:{sub_judul}:{chunk_index}"
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, base))
+
+def build_isi_nodes(lines: List[Dict], jurnal_id: str) -> List[IsiNode]:
+    """
+    Build list of IsiNode from PDF lines menggunakan heuristic scoring.
+
+    Langkah:
+    1. Pre-compute dominant font size & normal line gap dari seluruh baris.
+    2. Iterasi baris; tiap baris dievaluasi dengan score_subheading().
+    3. Jika skor >= SUBHEADING_SCORE_THRESHOLD -> flush buffer, mulai section baru.
+    4. Tiap section di-chunk dengan split_text_word_safe() -> IsiNode.
+    
+    Perbaikan: Menggunakan global_chunk_counter untuk memastikan semua ID unik.
+    """
+    if not lines:
+        return []
+
+    # Pre-compute statistik layout untuk scoring
+    dominant_font_size = compute_dominant_font_size(lines)
+    normal_line_gap = compute_normal_line_gap(lines)
+
+    print(f"  [Heuristic] dominant_font_size={dominant_font_size:.1f}  "
+          f"normal_line_gap={normal_line_gap:.1f}  "
+          f"threshold={SUBHEADING_SCORE_THRESHOLD}")
+
+    isi_nodes: List[IsiNode] = []
+    current_heading = "Pendahuluan"
+    current_buffer: List[Dict] = []
+    current_page_start = lines[0]["page"]
+    
+    # Global chunk counter untuk memastikan ID unik di seluruh dokumen
+    global_chunk_counter = 0
+
+    def flush_buffer():
+        nonlocal current_heading, global_chunk_counter
+        if not current_buffer:
+            return
+        full_text = " ".join(l["text"] for l in current_buffer)
+        chunks = split_text_word_safe(full_text, CONFIG["max_tokens_per_chunk"])
+        for chunk in chunks:
+            node_id = deterministic_id(jurnal_id, current_heading, global_chunk_counter)
+            isi_nodes.append(IsiNode(
+                id=node_id,
+                jurnal_id=jurnal_id,
+                sub_judul=current_heading,
+                konten_chunk=chunk,
+                halaman=current_page_start,
+            ))
+            global_chunk_counter += 1
+
+    for i, line in enumerate(lines):
+        prev_line = lines[i - 1] if i > 0 else None
+
+        if is_subheading(line, prev_line, dominant_font_size, normal_line_gap):
+            flush_buffer()
+            current_heading = line["text"].strip().rstrip(':.').strip()
+            current_buffer = []
+            current_page_start = line["page"]
+        else:
+            current_buffer.append(line)
+
+    flush_buffer()
+    return isi_nodes
+
+############################################################
+# EMBEDDING MODEL
+############################################################
+
+class EmbeddingModel:
+    def __init__(self, model_name: str = CONFIG["embedding_model"]):
+        self.device = CONFIG["device"]
+        self.model = SentenceTransformer(model_name, device=self.device)
+        print(f"Loaded embedding model: {model_name} on {self.device}")
+
+    def embed_text(self, text: str) -> List[float]:
+        return self.model.encode(text, convert_to_tensor=False).tolist()
+
+    def embed_batch(self, texts: List[str]) -> List[List[float]]:
+        embeddings = self.model.encode(texts, convert_to_tensor=False, show_progress_bar=True)
+        return [e.tolist() for e in embeddings]
+
+############################################################
+# NEO4J INGESTOR
+############################################################
+
+class Neo4jIngestor:
+    """
+    Manages Neo4j graph ingestion.
+    Nodes  : Jurnal {id, judul, doi, penulis, tanggal_rilis, file_hash}
+             Isi    {id, sub_judul, konten_chunk, halaman}
+    Edges  : (Jurnal)-[:HAS_SECTION]->(Isi)
+             (Isi)-[:NEXT]->(Isi)
+    """
+
+    def __init__(self,
+                 uri: str = CONFIG["neo4j_uri"],
+                 user: str = CONFIG["neo4j_user"],
+                 password: str = CONFIG["neo4j_password"]):
+        self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        print(f"Neo4j connected: {uri}")
+
+    def close(self):
+        self.driver.close()
+
+    # ── Constraints (idempotent) ──────────────────────────────
+
+    def create_constraints(self):
+        with self.driver.session() as session:
+            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (j:Jurnal) REQUIRE j.id IS UNIQUE")
+            session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (i:Isi) REQUIRE i.id IS UNIQUE")
+        print("Neo4j constraints ensured.")
+
+    # ── Jurnal node ───────────────────────────────────────────
+
+    def ingest_jurnal(self, jurnal: JurnalNode):
+        query = """
+        MERGE (j:Jurnal {id: $id})
+        SET j.judul        = $judul,
+            j.doi          = $doi,
+            j.penulis      = $penulis,
+            j.tanggal_rilis = $tanggal_rilis,
+            j.file_hash    = $file_hash,
+            j.source_file  = $source_file
+        """
+        with self.driver.session() as session:
+            session.run(query,
+                        id=jurnal.id,
+                        judul=jurnal.judul,
+                        doi=jurnal.doi or "",
+                        penulis=jurnal.penulis,
+                        tanggal_rilis=jurnal.tanggal_rilis,
+                        file_hash=jurnal.file_hash,
+                        source_file=jurnal.source_file)
+        print(f"  ✓ Neo4j: Jurnal ingested ({jurnal.id})")
+
+    # ── Isi nodes + HAS_SECTION + NEXT ───────────────────────
+
+    def ingest_isi_nodes(self, isi_nodes: List[IsiNode]):
+        if not isi_nodes:
+            return
+
+        # Batch upsert Isi nodes
+        batch = [
+            {
+                "id": n.id,
+                "jurnal_id": n.jurnal_id,
+                "sub_judul": n.sub_judul,
+                "konten_chunk": n.konten_chunk,
+                "halaman": n.halaman,
+            }
+            for n in isi_nodes
+        ]
+
+        with self.driver.session() as session:
+            # Create/update Isi nodes
+            session.run("""
+                UNWIND $batch AS row
+                MERGE (i:Isi {id: row.id})
+                SET i.sub_judul    = row.sub_judul,
+                    i.konten_chunk = row.konten_chunk,
+                    i.halaman      = row.halaman
+            """, batch=batch)
+
+            # Create (Jurnal)-[:HAS_SECTION]->(Isi)
+            session.run("""
+                UNWIND $batch AS row
+                MATCH (j:Jurnal {id: row.jurnal_id})
+                MATCH (i:Isi    {id: row.id})
+                MERGE (j)-[:HAS_SECTION]->(i)
+            """, batch=batch)
+
+            # Create (Isi)-[:NEXT]->(Isi) — batch dengan UNWIND
+            next_pairs = [
+                {"from_id": isi_nodes[i].id, "to_id": isi_nodes[i + 1].id}
+                for i in range(len(isi_nodes) - 1)
+            ]
+            if next_pairs:
+                session.run("""
+                    UNWIND $pairs AS pair
+                    MATCH (a:Isi {id: pair.from_id})
+                    MATCH (b:Isi {id: pair.to_id})
+                    MERGE (a)-[:NEXT]->(b)
+                """, pairs=next_pairs)
+
+        print(f"  ✓ Neo4j: {len(isi_nodes)} Isi nodes ingested with HAS_SECTION & NEXT edges")
+
+############################################################
+# CHROMADB INGESTOR
+############################################################
+
+class ChromaIngestor:
+    """
+    Manages ChromaDB vector ingestion.
+    Collection: konten_isi
+    Embedding : konten_chunk
+    Metadata  : {isi_id, jurnal_id}
+    """
+
+    def __init__(self, persist_directory: str = CONFIG["chroma_path"]):
+        self.client = chromadb.PersistentClient(path=persist_directory)
+        self.collection = self.client.get_or_create_collection(
+            name=CONFIG["chroma_collection"],
+            metadata={"description": "Embeddings konten_chunk dari Node Isi"}
+        )
+        print(f"ChromaDB initialized at: {persist_directory}")
+
+    def ingest_isi_nodes(self, isi_nodes: List[IsiNode], embedding_model: EmbeddingModel,
+                         judul_jurnal: str = ""):
+        """
+        Ingest IsiNode ke ChromaDB dengan contextualized embedding.
+
+        Teks yang di-embed = "{judul_jurnal} | {sub_judul} | {konten_chunk}"
+        Ini memastikan chunk tetap membawa identitas judul & sub-topik saat dicari,
+        sehingga vector search lebih akurat meski chunk berada di tengah dokumen.
+
+        ChromaDB `documents` tetap menyimpan konten_chunk murni (untuk retrieval),
+        sedangkan embedding dihasilkan dari teks yang sudah diperkaya konteks.
+        """
+        if not isi_nodes:
+            return
+
+        ids       = [n.id for n in isi_nodes]
+        documents = [n.konten_chunk for n in isi_nodes]   # disimpan apa adanya
+
+        # Teks yang di-embed: diperkaya dengan konteks judul jurnal + sub_judul
+        texts_to_embed = [
+            f"{judul_jurnal} | {n.sub_judul} | {n.konten_chunk}"
+            for n in isi_nodes
+        ]
+        embeddings = embedding_model.embed_batch(texts_to_embed)
+
+        metadatas = [
+            {"isi_id": n.id, "jurnal_id": n.jurnal_id}
+            for n in isi_nodes
+        ]
+
+        self.collection.add(
+            ids=ids,
+            documents=documents,
+            embeddings=embeddings,
+            metadatas=metadatas,
+        )
+        print(f"  ✓ ChromaDB: {len(isi_nodes)} konten_chunk ingested ke '{CONFIG['chroma_collection']}' "
+              f"(contextualized embedding)")
+
+    def query(self, query_text: str, embedding_model: EmbeddingModel,
+              top_k: int = 5, jurnal_id: Optional[str] = None) -> Dict:
+        """Semantic search dengan optional filter jurnal_id."""
+        query_embedding = embedding_model.embed_text(query_text)
+        where_filter = {"jurnal_id": jurnal_id} if jurnal_id else None
+        return self.collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            where=where_filter,
+        )
+
+############################################################
+# PIPELINE
+############################################################
+
+def run_pipeline(pdf_path: str,
+                 jurnal_metadata: Dict,
+                 embedding_model: EmbeddingModel,
+                 neo4j: Neo4jIngestor,
+                 chroma: ChromaIngestor) -> Optional[Dict]:
+    """
+    Main pipeline: PDF -> IsiNode -> Neo4j (graph) + ChromaDB (vector)
+
+    jurnal_metadata keys: judul, doi, penulis, tanggal_rilis
+
+    Returns:
+        Dict hasil jika file baru diproses
+        None jika file sudah ada (duplikat)
+    """
+    print(f"\n{'='*60}")
+    print(f"Processing: {pdf_path}")
+    print(f"{'='*60}")
+
+    # Hitung hash file untuk deteksi duplikasi
+    file_hash = calculate_file_hash(pdf_path)
+    print(f"File hash (MD5): {file_hash}")
+
+    # Cek apakah file sudah pernah diproses
+    if is_file_processed(neo4j.driver, file_hash):
+        print(f"⚠️  File sudah pernah diproses (hash: {file_hash[:8]}...). Melewati...")
+        return None
+
+    # Step 1: Parse PDF
+    print("Step 1: Parsing PDF...")
+    lines = parse_pdf_to_lines(pdf_path)
+    print(f"  Extracted {len(lines)} lines")
+
+    # Step 2: Clean boilerplate
+    print("Step 2: Removing boilerplate...")
+    lines = clean_lines(lines)
+    print(f"  Retained {len(lines)} lines after cleaning")
+
+    # Step 3: Create Jurnal node
+    jurnal_id = str(uuid.uuid4())
+    jurnal = JurnalNode(
+        id=jurnal_id,
+        judul=jurnal_metadata.get("judul", "Unknown"),
+        doi=jurnal_metadata.get("doi"),
+        penulis=jurnal_metadata.get("penulis", "Unknown"),
+        tanggal_rilis=str(jurnal_metadata.get("tanggal_rilis", "2024")),
+        source_file=pdf_path,
+        file_hash=file_hash,
+    )
+
+    # Step 4: Build Isi nodes (heuristic scoring + chunking dengan global counter)
+    print("Step 3: Building Isi nodes with heuristic subheading detection & chunking...")
+    isi_nodes = build_isi_nodes(lines, jurnal.id)
+    print(f"  Created {len(isi_nodes)} Isi nodes")
+
+    # Distribution info
+    headings: Dict[str, int] = {}
+    for node in isi_nodes:
+        headings[node.sub_judul] = headings.get(node.sub_judul, 0) + 1
+    print(f"\n  Chunk distribution:")
+    for heading, count in sorted(headings.items(), key=lambda x: x[1], reverse=True):
+        print(f"    - {heading}: {count} chunk(s)")
+
+    # Step 5: Ingest to Neo4j
+    print(f"\nStep 4: Ingesting to Neo4j...")
+    neo4j.ingest_jurnal(jurnal)
+    neo4j.ingest_isi_nodes(isi_nodes)
+
+    # Step 6: Ingest to ChromaDB
+    print(f"\nStep 5: Ingesting to ChromaDB (contextualized embedding)...")
+    chroma.ingest_isi_nodes(isi_nodes, embedding_model, judul_jurnal=jurnal.judul)
+
+    return {
+        "jurnal": jurnal,
+        "isi_nodes": isi_nodes,
+        "stats": {
+            "total_isi_nodes": len(isi_nodes),
+            "unique_headings": len(headings),
+            "avg_chunks_per_heading": len(isi_nodes) / len(headings) if headings else 0,
+        }
+    }
+
+############################################################
+# MAIN
+############################################################
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Disease Journal PDF Embedder — Neo4j + ChromaDB"
+    )
+    parser.add_argument("--dataset", default=CONFIG["dataset_path"])
+    parser.add_argument("--chroma", default=CONFIG["chroma_path"])
+    parser.add_argument("--neo4j-uri", default=CONFIG["neo4j_uri"])
+    parser.add_argument("--neo4j-user", default=CONFIG["neo4j_user"])
+    parser.add_argument("--neo4j-password", default=CONFIG["neo4j_password"])
+    parser.add_argument("--file", help="Process single PDF instead of entire dataset")
+    parser.add_argument("--max-tokens", type=int, default=CONFIG["max_tokens_per_chunk"])
+    parser.add_argument("--force", action="store_true", 
+                       help="Force reprocess even if file already exists (ignore hash check)")
+    args = parser.parse_args()
+
+    CONFIG["max_tokens_per_chunk"] = args.max_tokens
+
+    # Init models & connections
+    print("Initializing embedding model...")
+    embedding_model = EmbeddingModel()
+
+    print("Initializing Neo4j...")
+    neo4j = Neo4jIngestor(uri=args.neo4j_uri, user=args.neo4j_user, password=args.neo4j_password)
+    neo4j.create_constraints()
+
+    print("Initializing ChromaDB...")
+    chroma = ChromaIngestor(persist_directory=args.chroma)
+
+    # Find PDFs
+    if args.file:
+        pdf_files = [Path(args.file)]
+    else:
+        dataset_path = Path(args.dataset)
+        if not dataset_path.exists():
+            print(f"Error: Dataset path not found: {dataset_path}")
+            neo4j.close()
+            return
+        pdf_files = list(dataset_path.glob("**/*.pdf"))
+
+    if not pdf_files:
+        print("No PDF files found!")
+        neo4j.close()
+        return
+
+    print(f"\nFound {len(pdf_files)} PDF file(s) to process")
+    if args.force:
+        print("⚠️  Force mode: Akan memproses ulang semua file (abaikan hash check)")
+
+    all_results = []
+    skipped_files = 0
+    
+    for pdf_file in pdf_files:
+        try:
+            # Customize per file as needed
+            # TODO: Extract metadata from filename or external source
+            jurnal_metadata = {
+                "judul": pdf_file.stem,  # Gunakan nama file sebagai judul default
+                "doi": None,
+                "penulis": "Unknown Author",
+                "tanggal_rilis": "2024",
+            }
+
+            # Skip hash check jika force mode
+            if args.force:
+                # Buat jurnal_id baru tanpa cek hash
+                file_hash = calculate_file_hash(str(pdf_file))
+                print(f"\n{'='*60}")
+                print(f"Force processing: {pdf_file}")
+                print(f"{'='*60}")
+                print(f"File hash (MD5): {file_hash}")
+                
+                # Langsung proses tanpa cek duplikasi
+                lines = parse_pdf_to_lines(str(pdf_file))
+                lines = clean_lines(lines)
+                
+                jurnal_id = str(uuid.uuid4())
+                jurnal = JurnalNode(
+                    id=jurnal_id,
+                    judul=jurnal_metadata["judul"],
+                    doi=jurnal_metadata.get("doi"),
+                    penulis=jurnal_metadata["penulis"],
+                    tanggal_rilis=jurnal_metadata["tanggal_rilis"],
+                    source_file=str(pdf_file),
+                    file_hash=file_hash,
+                )
+                
+                isi_nodes = build_isi_nodes(lines, jurnal.id)
+                
+                neo4j.ingest_jurnal(jurnal)
+                neo4j.ingest_isi_nodes(isi_nodes)
+                chroma.ingest_isi_nodes(isi_nodes, embedding_model, judul_jurnal=jurnal.judul)
+                
+                all_results.append({
+                    "jurnal": jurnal,
+                    "isi_nodes": isi_nodes,
+                    "stats": {"total_isi_nodes": len(isi_nodes)}
+                })
+            else:
+                # Normal mode dengan hash checking
+                result = run_pipeline(str(pdf_file), jurnal_metadata,
+                                      embedding_model, neo4j, chroma)
+                if result:
+                    all_results.append(result)
+                else:
+                    skipped_files += 1
+                    
+        except Exception as e:
+            print(f"Error processing {pdf_file}: {e}")
+            import traceback
+            traceback.print_exc()
+
+    neo4j.close()
+
+    # Summary
+    print(f"\n{'='*60}")
+    print("PIPELINE COMPLETE")
+    print(f"{'='*60}")
+    print(f"Processed     : {len(all_results)} file(s)")
+    if skipped_files > 0:
+        print(f"Skipped       : {skipped_files} file(s) (already exist)")
+    total_nodes = sum(r["stats"]["total_isi_nodes"] for r in all_results)
+    print(f"Total Isi nodes : {total_nodes}")
+    print(f"\nNeo4j   : {args.neo4j_uri}")
+    print(f"ChromaDB: {args.chroma}  |  collection: {CONFIG['chroma_collection']}")
+    print("\nGraph structure:")
+    print("  (Jurnal)-[:HAS_SECTION]->(Isi)")
+    print("  (Isi)-[:NEXT]->(Isi)")
+
+if __name__ == "__main__":
+    main()
