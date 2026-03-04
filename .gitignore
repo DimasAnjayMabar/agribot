@@ -2,3 +2,4 @@ model
 chroma_db
 venv
 .env
+supabase_password.txt
