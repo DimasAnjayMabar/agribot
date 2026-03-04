@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.express as px
 from typing import Generator
 
-from backend import get_rag_pipeline, RAGResponse, EnrichedChunk
+from pipeline import get_rag_pipeline, RAGResponse, EnrichedChunk
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -342,7 +342,7 @@ with st.sidebar:
             import torch
             st.write(f"**Embedding:** `{type(pipeline.models.embedding_model).__name__}` @ CPU")
             st.write(f"**Reranker:** `{type(pipeline.models.reranker).__name__}` @ CPU")
-            from backend import CONFIG as _CFG
+            from pipeline import CONFIG as _CFG
             st.write(f"**LLM:** Groq API — `{_CFG['groq_model']}`")
             if torch.cuda.is_available():
                 vram_used  = torch.cuda.memory_allocated() / 1e9
@@ -368,7 +368,7 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────────────────────
 def _sync_config():
     """Dorong nilai sidebar ke CONFIG backend sebelum query dijalankan."""
-    from backend import CONFIG
+    from pipeline import CONFIG
     CONFIG["chroma_retrieval_k"]    = chroma_k
     CONFIG["context_window"]        = context_window
     CONFIG["reranked_k"]            = rerank_k
