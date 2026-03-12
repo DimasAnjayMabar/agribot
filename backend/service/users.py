@@ -32,7 +32,6 @@ MAX_ACTIVE_SESSIONS          = 5   # Maksimum device yang boleh login bersamaan
 
 
 class UserService:
-
     # -------------------------------------------------------------------------
     # HELPER — OTP & RATE LIMITING
     # -------------------------------------------------------------------------
@@ -349,11 +348,14 @@ class UserService:
         if not otp_entry:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OTP tidak valid atau sudah kadaluarsa.")
 
-        otp_entry.is_used = True
-        user.is_verified  = True
+        user.is_verified = True
+
+        # Hapus semua row OTP registrasi milik user — tidak diperlukan lagi
+        db.query(OTPRegistrasi).filter(OTPRegistrasi.user_id == user.id).delete()
+
         db.commit()
 
-        logger.info(f"Registration OTP verified → user_id: {user.id}")
+        logger.info(f"Registration OTP verified → user_id: {user.id}, semua OTP registrasi dihapus")
         return True
 
     # -------------------------------------------------------------------------
@@ -646,16 +648,17 @@ class UserService:
                 detail="Password baru tidak boleh sama dengan password sebelumnya."
             )
 
-        user.hashed_password             = pwd_context.hash(reset_input.new_password)
-        otp_entry.reset_token            = None
-        otp_entry.reset_token_expires_at = None
+        user.hashed_password = pwd_context.hash(reset_input.new_password)
 
         # Hapus semua session — semua device harus login ulang
         UserService._delete_all_sessions(db, user.id)
 
+        # Hapus semua row OTP reset password milik user — tidak diperlukan lagi
+        db.query(OTPResetPassword).filter(OTPResetPassword.user_id == user.id).delete()
+
         db.commit()
 
-        logger.info(f"Password reset success → user_id: {user.id}, semua session dihapus")
+        logger.info(f"Password reset success → user_id: {user.id}, semua session dan OTP reset dihapus")
         return True
 
     # -------------------------------------------------------------------------

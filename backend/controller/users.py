@@ -12,8 +12,10 @@ from validation.users import (
     VerifyOtpResetSchema,
     ResetPasswordSchema,
     RefreshTokenSchema,
-    BulkLogoutSchema,    # ← TAMBAHAN BARU
+    BulkLogoutSchema,
 )
+from middleware.auth import get_current_session
+from models import UserAuth
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/users", tags=["Users"])
@@ -176,7 +178,10 @@ def refresh_token(body: RefreshTokenSchema, db: Session = Depends(get_db)):
 # =============================================================================
 
 @router.get("/sessions", status_code=status.HTTP_200_OK)
-def get_active_sessions(request: Request, db: Session = Depends(get_db)):
+def get_active_sessions(
+    db: Session = Depends(get_db),
+    current_session: UserAuth = Depends(get_current_session)
+):
     """
     Lihat semua device yang sedang login.
     Device saat ini ditandai dengan is_current = true.
@@ -185,8 +190,7 @@ def get_active_sessions(request: Request, db: Session = Depends(get_db)):
         Authorization: Bearer <access_token>
     """
     try:
-        access_token = _get_access_token(request)
-        result = UserService.get_active_sessions(db, access_token)
+        result = UserService.get_active_sessions(db, current_session.access_token)
         logger.info("GET /sessions success")
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -205,7 +209,11 @@ def get_active_sessions(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/sessions/logout-selected", status_code=status.HTTP_200_OK)
-def logout_selected_devices(request: Request, body: BulkLogoutSchema, db: Session = Depends(get_db)):
+def logout_selected_devices(
+    body: BulkLogoutSchema,
+    db: Session = Depends(get_db),
+    current_session: UserAuth = Depends(get_current_session)
+):
     """
     Logout device-device tertentu berdasarkan session_id (bulk select).
     Device saat ini tidak bisa ikut dipilih — gunakan /logout untuk logout sendiri.
@@ -216,8 +224,7 @@ def logout_selected_devices(request: Request, body: BulkLogoutSchema, db: Sessio
         session_ids (list[int]): daftar session_id yang ingin di-logout
     """
     try:
-        access_token = _get_access_token(request)
-        deleted = UserService.logout_selected_devices(db, access_token, body.session_ids)
+        deleted = UserService.logout_selected_devices(db, current_session.access_token, body.session_ids)
         logger.info(f"POST /sessions/logout-selected success → {deleted} session(s) deleted")
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -265,7 +272,10 @@ def logout(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/logout/other-devices", status_code=status.HTTP_200_OK)
-def logout_other_devices(request: Request, db: Session = Depends(get_db)):
+def logout_other_devices(
+    db: Session = Depends(get_db),
+    current_session: UserAuth = Depends(get_current_session)
+):
     """
     Logout semua device lain kecuali device ini.
     Row session device lain dihapus dari DB.
@@ -274,8 +284,7 @@ def logout_other_devices(request: Request, db: Session = Depends(get_db)):
         Authorization: Bearer <access_token>
     """
     try:
-        access_token = _get_access_token(request)
-        deleted = UserService.logout_other_devices(db, access_token)
+        deleted = UserService.logout_other_devices(db, current_session.access_token)
         logger.info(f"POST /logout/other-devices success → {deleted} session(s) deleted")
         return JSONResponse(
             status_code=status.HTTP_200_OK,

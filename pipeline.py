@@ -153,14 +153,14 @@ CONFIG = {
     "final_context_k":       5,   # jumlah chunk yang masuk ke prompt LLM
 
     # ── LLM generation — RAG pipeline (knowledge query) ─────────────────────
-    "max_new_tokens":        2056,
+    "max_new_tokens":        2048,
     "temperature":           0.2,    # rendah → faktual, deterministik
     "top_p":                 0.95,
     # Batas karakter konteks di prompt — Groq mendukung context window besar
     "context_max_chars":     24_000,  # ~6000 token × 4 char/token
 
     # ── LLM generation — Social pipeline (social chat) ───────────────────────
-    "social_max_new_tokens": 256,    # respons sosial cukup singkat
+    "social_max_new_tokens": 512,    # respons sosial cukup singkat
     "social_temperature":    0.8,    # lebih tinggi → variasi & natural
     "social_top_p":          0.95,
 }
