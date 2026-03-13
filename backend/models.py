@@ -38,7 +38,7 @@ class UserAuth(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     # Tidak unique — satu user bisa punya banyak baris (satu per device/session)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
     access_token = Column(String(255), unique=True, nullable=True)
     access_token_expires_at = Column(DateTime, nullable=True)
@@ -63,7 +63,7 @@ class OTPRegistrasi(Base):
     __tablename__ = "otp_registrasi"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     # Gunakan String(6) agar kode seperti 001234 tidak terbaca sebagai 1234
     otp = Column(String(6), nullable=False)
@@ -87,7 +87,7 @@ class OTPResetPassword(Base):
     __tablename__ = "otp_reset_password"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     # Gunakan String(6) agar kode seperti 001234 tidak terbaca sebagai 1234
     otp = Column(String(6), nullable=False)
@@ -114,7 +114,7 @@ class Chat(Base):
     __tablename__ = "chats"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(Text, nullable=False)  # Judul chat otomatis dari 5 kata pertama
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -128,7 +128,7 @@ class ChatDetail(Base):
     __tablename__ = "chat_details"
 
     id = Column(Integer, primary_key=True, index=True)
-    chat_id = Column(Integer, ForeignKey("chats.id"), nullable=False)
+    chat_id = Column(Integer, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
     question = Column(Text, nullable=False)
     response = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -144,7 +144,7 @@ class PipelineLog(Base):
     __tablename__ = "pipeline_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    chat_detail_id = Column(Integer, ForeignKey("chat_details.id"), nullable=False)
+    chat_detail_id = Column(Integer, ForeignKey("chat_details.id", ondelete="CASCADE"), nullable=False)
 
     # Metrik Performa
     latency_ms = Column(Integer)          # Kecepatan respon AI dalam milidetik

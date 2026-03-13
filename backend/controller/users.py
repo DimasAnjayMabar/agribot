@@ -130,7 +130,6 @@ def login(request: Request, login_input: LoginSchema, db: Session = Depends(get_
         logger.error(f"POST /login error → {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat login.")
 
-
 # =============================================================================
 # REFRESH TOKEN
 # =============================================================================
@@ -343,7 +342,6 @@ def verify_reset_otp(otp_input: VerifyOtpResetSchema, db: Session = Depends(get_
         logger.error(f"POST /forgot-password/verify-otp error → {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat verifikasi OTP.")
 
-
 @router.post("/reset-password", status_code=status.HTTP_200_OK)
 def reset_password(reset_input: ResetPasswordSchema, db: Session = Depends(get_db)):
     """
@@ -363,7 +361,6 @@ def reset_password(reset_input: ResetPasswordSchema, db: Session = Depends(get_d
     except Exception as e:
         logger.error(f"POST /reset-password error → {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat reset password.")
-
 
 # =============================================================================
 # USER DATA

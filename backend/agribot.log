@@ -1,0 +1,92 @@
+2026-03-12 11:59:25  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-03-12 11:59:25  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-03-12 11:59:25  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-03-12 11:59:25  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(openai/gpt-oss-120b)
+2026-03-12 11:59:25  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-03-12 11:59:39  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (14.59s)
+2026-03-12 11:59:39  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-03-12 11:59:46  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (6.74s)
+2026-03-12 11:59:46  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=openai/gpt-oss-120b
+2026-03-12 11:59:46  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-03-12 11:59:46  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-03-12 11:59:53  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (6.68s)
+2026-03-12 11:59:53  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-03-12 11:59:53  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: ./chroma_db
+2026-03-13 11:12:35  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-03-13 11:12:35  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-03-13 11:12:35  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-03-13 11:12:35  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(openai/gpt-oss-120b)
+2026-03-13 11:12:35  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-03-13 11:12:49  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (14.57s)
+2026-03-13 11:12:49  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-03-13 11:12:57  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (7.67s)
+2026-03-13 11:12:57  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=openai/gpt-oss-120b
+2026-03-13 11:12:57  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-03-13 11:12:57  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-03-13 11:13:04  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (6.94s)
+2026-03-13 11:13:04  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-03-13 11:13:04  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: E:\proyek magang\chatbot3\chroma_db
+2026-03-13 11:13:12  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-03-13 11:13:12  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-03-13 11:13:12  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-03-13 11:13:13  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Intent] knowledge — kata tanya terdeteksi
+2026-03-13 11:13:13  [36mINFO    [0m  [38;5;245magribot[0m  Intent terdeteksi: knowledge — query='jelaskan tentang busuk cincin bakteri'
+2026-03-13 11:13:13  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-03-13 11:13:13  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Query: 'jelaskan tentang busuk cincin bakteri'
+2026-03-13 11:13:13  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Bahasa terdeteksi: id
+2026-03-13 11:13:13  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [NLP-ID] keywords: tentang busuk cincin bakteri
+2026-03-13 11:13:13  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Knowledge] Query diperkaya: 'jelaskan tentang busuk cincin bakteri tentang busuk cincin bakteri'
+2026-03-13 11:13:13  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] ChromaDB retrieval (k=30)...
+2026-03-13 11:13:21  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  ChromaDB: 30 kandidat ditemukan (k=30)
+2026-03-13 11:13:21  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] 30 kandidat ditemukan  (8.762s)
+2026-03-13 11:13:21  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] Neo4j enrichment (30 kandidat, window=±3)...
+2026-03-13 11:13:26  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  Neo4j enrich: 30/30 berhasil diperkaya
+2026-03-13 11:13:26  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] 30 chunk diperkaya  (4.576s)
+2026-03-13 11:13:26  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 3] BGE reranking (30 → top 10) @ GPU...
+2026-03-13 11:19:28  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 3] Top 10 dipilih  (362.208s)  skor: min=0.0620  max=0.9591
+2026-03-13 11:19:28  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 4] Filtering: max 5/jurnal → ambil top 5...
+2026-03-13 11:19:28  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 4] Final: 5 chunk dari 1 jurnal
+2026-03-13 11:19:28  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Prompt] lang=id  ctx=20762 char
+2026-03-13 11:19:28  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Pipeline selesai — 375.597s  |  chunks=5  sumber=5
+2026-03-13 11:19:28  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-03-13 11:19:28  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] Generate — model=openai/gpt-oss-120b  max_tokens=2048  temperature=0.20  top_p=0.95
+2026-03-13 11:19:34  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] ✓ Selesai — 997 chunk  6.240s
+2026-03-13 11:49:26  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-03-13 11:49:26  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-03-13 11:49:26  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-03-13 11:49:26  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(openai/gpt-oss-120b)
+2026-03-13 11:49:26  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-03-13 11:49:37  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (11.03s)
+2026-03-13 11:49:37  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-03-13 11:49:44  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (7.29s)
+2026-03-13 11:49:44  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=openai/gpt-oss-120b
+2026-03-13 11:49:44  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-03-13 11:49:44  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-03-13 11:49:51  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (6.16s)
+2026-03-13 11:49:51  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-03-13 11:49:51  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: E:\proyek magang\chatbot3\chroma_db
+2026-03-13 11:49:59  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-03-13 11:49:59  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-03-13 11:49:59  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-03-13 11:53:47  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Intent] knowledge — kata tanya terdeteksi
+2026-03-13 11:53:47  [36mINFO    [0m  [38;5;245magribot[0m  Intent terdeteksi: knowledge — query='jelaskan tentang busuk lunak bakteri'
+2026-03-13 11:53:47  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-03-13 11:53:47  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Query: 'jelaskan tentang busuk lunak bakteri'
+2026-03-13 11:53:47  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Bahasa terdeteksi: id
+2026-03-13 11:53:47  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [NLP-ID] keywords: tentang busuk lunak bakteri
+2026-03-13 11:53:47  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Knowledge] Query diperkaya: 'jelaskan tentang busuk lunak bakteri tentang busuk lunak bakteri'
+2026-03-13 11:53:47  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] ChromaDB retrieval (k=30)...
+2026-03-13 11:53:55  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  ChromaDB: 30 kandidat ditemukan (k=30)
+2026-03-13 11:53:55  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] 30 kandidat ditemukan  (7.942s)
+2026-03-13 11:53:55  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] Neo4j enrichment (30 kandidat, window=±3)...
+2026-03-13 11:53:56  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  Neo4j enrich: 30/30 berhasil diperkaya
+2026-03-13 11:53:56  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] 30 chunk diperkaya  (1.183s)
+2026-03-13 11:53:56  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 3] BGE reranking (30 → top 10) @ GPU...
+2026-03-13 11:57:41  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 3] Top 10 dipilih  (224.678s)  skor: min=0.4080  max=0.9425
+2026-03-13 11:57:41  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 4] Filtering: max 5/jurnal → ambil top 5...
+2026-03-13 11:57:41  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 4] Final: 5 chunk dari 1 jurnal
+2026-03-13 11:57:41  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Prompt] lang=id  ctx=22231 char
+2026-03-13 11:57:41  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Pipeline selesai — 233.817s  |  chunks=5  sumber=5
+2026-03-13 11:57:41  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-03-13 11:57:41  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] Generate — model=openai/gpt-oss-120b  max_tokens=2048  temperature=0.20  top_p=0.95
+2026-03-13 11:57:46  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] ✓ Selesai — 791 chunk  4.692s
