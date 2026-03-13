@@ -129,7 +129,7 @@ CONFIG = {
     # GROQ_API_KEY dibaca dari environment variable — tidak di-hardcode di sini
 
     # ── ChromaDB — satu collection sesuai embedder baru ───────────────────────
-    "chroma_path":       "./chroma_db",
+    "chroma_path":       os.path.join(os.path.dirname(os.path.abspath(__file__)), "chroma_db"),
     "chroma_collection": "konten_isi",
 
     # ── Neo4j ─────────────────────────────────────────────────────────────────

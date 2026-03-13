@@ -1,0 +1,15 @@
+chromadb
+groq
+sentence_transformers
+neo4j 
+dotenv
+uuid
+pdfplumber
+streamlit
+pandas 
+plotly
+sqlalchemy
+uvicorn
+fastapi
+pydantic
+alembic
