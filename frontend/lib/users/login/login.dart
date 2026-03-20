@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -16,42 +17,49 @@ final _dio = Dio(
   ),
 );
 
+// Secure Storage — final bukan const agar tidak crash di web
+final _storage = FlutterSecureStorage(
+  aOptions: const AndroidOptions(encryptedSharedPreferences: true),
+  webOptions: const WebOptions(
+    dbName: 'agribot_secure',
+    publicKey: 'agribot_key',
+  ),
+);
+
 // ---------------------------------------------------------------------------
 // Warna & konstanta
 // ---------------------------------------------------------------------------
 
-const _bg = Color(0xFF020202);
-const _neon = Color(0xFF16DB65);
-const _neonDim = Color(0x3316DB65); // neon 20% opacity — untuk glow layer
-const _surface = Color(0xFF0D0D0D);
-const _border = Color(0xFF16DB65);
+const _bg       = Color(0xFF020202);
+const _neon     = Color(0xFF16DB65);
+const _neonDim  = Color(0x3316DB65);
+const _surface  = Color(0xFF0D0D0D);
+const _border   = Color(0xFF16DB65);
 const _textMuted = Color(0xFFA3A3A3);
 
 // ---------------------------------------------------------------------------
-// RegisterPage
+// LoginPage
 // ---------------------------------------------------------------------------
 
-class RegisterPage extends StatefulWidget {
-  const RegisterPage({super.key});
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
 
   @override
-  State<RegisterPage> createState() => _RegisterPageState();
+  State<LoginPage> createState() => _LoginPageState();
 }
 
-class _RegisterPageState extends State<RegisterPage>
+class _LoginPageState extends State<LoginPage>
     with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
 
-  final _nameController = TextEditingController();
-  final _usernameController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _identifierController = TextEditingController();
+  final _passwordController   = TextEditingController();
 
   bool _obscurePassword = true;
-  bool _isLoading = false;
+  bool _isLoading       = false;
 
   late final AnimationController _fadeController;
-  late final Animation<double> _fadeAnimation;
+  late final Animation<double>   _fadeAnimation;
 
   @override
   void initState() {
@@ -70,31 +78,36 @@ class _RegisterPageState extends State<RegisterPage>
   @override
   void dispose() {
     _fadeController.dispose();
-    _nameController.dispose();
-    _usernameController.dispose();
-    _emailController.dispose();
+    _identifierController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  void _handleRegister() async {
+  // ── Hit API login ──────────────────────────────────────────────────────────
+
+  Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
     try {
       final response = await _dio.post(
-        '/users/register',
+        '/users/login',
         data: {
-          'name': _nameController.text.trim(),
-          'username': _usernameController.text.trim(),
-          'email': _emailController.text.trim(),
-          'password': _passwordController.text,
+          'identifier': _identifierController.text.trim(),
+          'password'  : _passwordController.text,
         },
       );
 
-      if (response.statusCode == 201 && mounted) {
-        final email = Uri.encodeComponent(_emailController.text.trim());
-        context.push('/users/register/verify-otp?email=$email');
+      if (response.statusCode == 200 && mounted) {
+        final data = response.data['data'] as Map<String, dynamic>;
+
+        // Tulis sequential — IndexedDB web tidak support concurrent writes
+        await _storage.write(key: 'access_token',  value: data['access_token']  as String);
+        await _storage.write(key: 'refresh_token', value: data['refresh_token'] as String);
+        await _storage.write(key: 'user_id',       value: (data['user_id'] as int).toString());
+
+        if (!mounted) return;
+        context.go('/chats');
       }
     } on DioException catch (e) {
       if (!mounted) return;
@@ -145,13 +158,13 @@ class _RegisterPageState extends State<RegisterPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Logo ────────────────────────────────────────────────
+                  // ── Logo ──────────────────────────────────────────────────
                   _Logo(),
                   const SizedBox(height: 40),
 
-                  // ── Heading ─────────────────────────────────────────────
+                  // ── Heading ───────────────────────────────────────────────
                   Text(
-                    'Buat Akun',
+                    'Masuk',
                     style: GoogleFonts.poppins(
                       fontSize: 28,
                       fontWeight: FontWeight.w700,
@@ -161,7 +174,7 @@ class _RegisterPageState extends State<RegisterPage>
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Daftarkan akun untuk mulai menggunakan AgriBot.',
+                    'Selamat datang kembali di AgriBot.',
                     style: GoogleFonts.poppins(
                       fontSize: 13,
                       color: _textMuted,
@@ -170,39 +183,16 @@ class _RegisterPageState extends State<RegisterPage>
                   ),
                   const SizedBox(height: 36),
 
-                  // ── Fields ───────────────────────────────────────────────
+                  // ── Fields ────────────────────────────────────────────────
                   _NeonField(
-                    controller: _nameController,
-                    label: 'Nama Lengkap',
-                    hint: 'John Doe',
-                    icon: Icons.person_outline_rounded,
-                    validator: (v) => (v == null || v.isEmpty)
-                        ? 'Nama tidak boleh kosong'
-                        : null,
-                  ),
-                  const SizedBox(height: 20),
-
-                  _NeonField(
-                    controller: _usernameController,
-                    label: 'Username',
-                    hint: '@johndoe',
+                    controller: _identifierController,
+                    label: 'Username atau Email',
+                    hint: '@johndoe atau johndoe@email.com',
                     icon: Icons.alternate_email_rounded,
-                    validator: (v) => (v == null || v.isEmpty)
-                        ? 'Username tidak boleh kosong'
-                        : null,
-                  ),
-                  const SizedBox(height: 20),
-
-                  _NeonField(
-                    controller: _emailController,
-                    label: 'Email',
-                    hint: 'johndoe@email.com',
-                    icon: Icons.mail_outline_rounded,
-                    keyboardType: TextInputType.emailAddress,
                     validator: (v) {
-                      if (v == null || v.isEmpty)
-                        return 'Email tidak boleh kosong';
-                      if (!v.contains('@')) return 'Format email tidak valid';
+                      if (v == null || v.isEmpty) {
+                        return 'Username atau email tidak boleh kosong';
+                      }
                       return null;
                     },
                   ),
@@ -226,47 +216,62 @@ class _RegisterPageState extends State<RegisterPage>
                           setState(() => _obscurePassword = !_obscurePassword),
                     ),
                     validator: (v) {
-                      if (v == null || v.isEmpty)
-                        return 'Password tidak boleh kosong';
-                      if (v.length < 8) return 'Password minimal 8 karakter';
+                      if (v == null || v.isEmpty) return 'Password tidak boleh kosong';
                       return null;
                     },
                   ),
-                  const SizedBox(height: 36),
+                  const SizedBox(height: 14),
 
-                  // ── Submit button ────────────────────────────────────────
+                  // ── Lupa Password anchor ───────────────────────────────────
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: GestureDetector(
+                      onTap: () => context.push('/users/forgot-password'),
+                      child: Text(
+                        'Lupa password?',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: _neon,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // ── Submit button ──────────────────────────────────────────
                   _NeonButton(
-                    label: 'Daftar',
+                    label: 'Masuk',
                     isLoading: _isLoading,
-                    onPressed: _handleRegister,
+                    onPressed: _handleLogin,
                   ),
                   const SizedBox(height: 28),
 
-                  // ── Footer ───────────────────────────────────────────────
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Sudah punya akun? ',
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          color: _textMuted,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () {
-                          context.go('/users/login');
-                        },
-                        child: Text(
-                          'Masuk',
+                  // ── Belum punya akun ───────────────────────────────────────
+                  Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Belum punya akun? ',
                           style: GoogleFonts.poppins(
                             fontSize: 13,
-                            color: _neon,
-                            fontWeight: FontWeight.w600,
+                            color: _textMuted,
                           ),
                         ),
-                      ),
-                    ],
+                        GestureDetector(
+                          onTap: () => context.push('/users/register'),
+                          child: Text(
+                            'Daftar sekarang',
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              color: _neon,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -287,7 +292,6 @@ class _Logo extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        // Glow container di belakang emoji
         Container(
           width: 48,
           height: 48,
@@ -358,7 +362,6 @@ class _NeonFieldState extends State<_NeonField> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Label
         Text(
           widget.label,
           style: GoogleFonts.poppins(
@@ -369,8 +372,6 @@ class _NeonFieldState extends State<_NeonField> {
           ),
         ),
         const SizedBox(height: 8),
-
-        // Field dengan glow
         AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           decoration: BoxDecoration(
@@ -386,7 +387,7 @@ class _NeonFieldState extends State<_NeonField> {
                 : [],
           ),
           child: Focus(
-            onFocusChange: (f) => setState(() => _focused = f),
+            onFocusChange: (f) { if (mounted) setState(() => _focused = f); },
             child: TextFormField(
               controller: widget.controller,
               obscureText: widget.obscureText,
@@ -400,7 +401,10 @@ class _NeonFieldState extends State<_NeonField> {
               cursorColor: _neon,
               decoration: InputDecoration(
                 hintText: widget.hint,
-                hintStyle: GoogleFonts.poppins(fontSize: 14, color: _textMuted),
+                hintStyle: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: _textMuted,
+                ),
                 prefixIcon: Icon(
                   widget.icon,
                   color: _focused ? _neon : _textMuted,
@@ -415,10 +419,7 @@ class _NeonFieldState extends State<_NeonField> {
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(
-                    color: Color(0xFF1A1A1A),
-                    width: 1.5,
-                  ),
+                  borderSide: const BorderSide(color: Color(0xFF1A1A1A), width: 1.5),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -426,17 +427,11 @@ class _NeonFieldState extends State<_NeonField> {
                 ),
                 errorBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: Colors.red.shade700,
-                    width: 1.5,
-                  ),
+                  borderSide: BorderSide(color: Colors.red.shade700, width: 1.5),
                 ),
                 focusedErrorBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: Colors.red.shade700,
-                    width: 1.5,
-                  ),
+                  borderSide: BorderSide(color: Colors.red.shade700, width: 1.5),
                 ),
                 errorStyle: GoogleFonts.poppins(
                   fontSize: 11,

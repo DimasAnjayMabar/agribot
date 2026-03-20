@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/users/chats/chats.dart';
+import 'package:frontend/users/login/login.dart';
 import 'package:frontend/users/register/register.dart';
 import 'package:frontend/users/register/verify_otp.dart';
 import 'package:go_router/go_router.dart';
@@ -10,13 +12,6 @@ void main() {
 // ---------------------------------------------------------------------------
 // Dummy pages — ganti dengan import page asli nanti
 // ---------------------------------------------------------------------------
-
-class LoginPage extends StatelessWidget {
-  const LoginPage({super.key});
-  @override
-  Widget build(BuildContext context) =>
-      _DummyPage(title: 'Login', path: '/users/login');
-}
 
 class ForgotPasswordPage extends StatelessWidget {
   const ForgotPasswordPage({super.key});
@@ -39,13 +34,6 @@ class ResetPasswordPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       _DummyPage(title: 'Reset Password', path: '/reset-password');
-}
-
-class ChatsPage extends StatelessWidget {
-  const ChatsPage({super.key});
-  @override
-  Widget build(BuildContext context) =>
-      _DummyPage(title: 'Chats', path: '/chats');
 }
 
 // Widget dummy generik — hapus setelah page asli siap
@@ -82,7 +70,7 @@ class _DummyPage extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 final GoRouter _router = GoRouter(
-  initialLocation: '/users/register',
+  initialLocation: '/users/login',
   routes: [
     // Auth – Register
     GoRoute(

@@ -34,12 +34,14 @@ async def lifespan(app: FastAPI):
     # ── Shutdown: tutup koneksi Neo4j & bersihkan resource pipeline ──
     logger.info("Server shutdown — menutup RAG pipeline...")
     try:
-        pipeline = get_rag_pipeline()
-        pipeline.close()
-        logger.info("RAG pipeline ditutup.")
+        from pipeline import _rag_pipeline
+        if _rag_pipeline is not None:
+            _rag_pipeline.close()
+            logger.info("RAG pipeline ditutup.")
+        else:
+            logger.info("RAG pipeline sudah tidak aktif, skip.")
     except Exception as e:
         logger.warning("Gagal menutup RAG pipeline: %s", e)
-
 
 app = FastAPI(
     title="Agribot API",
