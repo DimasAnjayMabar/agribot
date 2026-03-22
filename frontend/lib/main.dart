@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/users/chats/chats.dart';
+import 'package:frontend/users/forgot_password/request_otp.dart';
+import 'package:frontend/users/forgot_password/reset_password.dart';
+import 'package:frontend/users/forgot_password/verify_otp.dart';
 import 'package:frontend/users/login/login.dart';
 import 'package:frontend/users/register/register.dart';
 import 'package:frontend/users/register/verify_otp.dart';
@@ -7,62 +10,6 @@ import 'package:go_router/go_router.dart';
 
 void main() {
   runApp(const MyApp());
-}
-
-// ---------------------------------------------------------------------------
-// Dummy pages — ganti dengan import page asli nanti
-// ---------------------------------------------------------------------------
-
-class ForgotPasswordPage extends StatelessWidget {
-  const ForgotPasswordPage({super.key});
-  @override
-  Widget build(BuildContext context) =>
-      _DummyPage(title: 'Forgot Password', path: '/forgot-password');
-}
-
-class ForgotPasswordVerifyOtpPage extends StatelessWidget {
-  const ForgotPasswordVerifyOtpPage({super.key});
-  @override
-  Widget build(BuildContext context) => _DummyPage(
-    title: 'Forgot Password – Verify OTP',
-    path: '/forgot-password/verify-otp',
-  );
-}
-
-class ResetPasswordPage extends StatelessWidget {
-  const ResetPasswordPage({super.key});
-  @override
-  Widget build(BuildContext context) =>
-      _DummyPage(title: 'Reset Password', path: '/reset-password');
-}
-
-// Widget dummy generik — hapus setelah page asli siap
-class _DummyPage extends StatelessWidget {
-  const _DummyPage({required this.title, required this.path});
-  final String title;
-  final String path;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 8),
-            Text(
-              path,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +47,10 @@ final GoRouter _router = GoRouter(
       routes: [
         GoRoute(
           path: 'verify-otp', // resolves to /forgot-password/verify-otp
-          builder: (context, state) => const ForgotPasswordVerifyOtpPage(),
+          builder: (context, state) {
+            final email = state.uri.queryParameters['email'] ?? '';
+            return ForgotPasswordVerifyOtpPage(email: email);
+          },
         ),
       ],
     ),
@@ -108,7 +58,10 @@ final GoRouter _router = GoRouter(
     // Auth – Reset Password
     GoRoute(
       path: '/users/reset-password',
-      builder: (context, state) => const ResetPasswordPage(),
+      builder: (context, state) {
+        final token = state.uri.queryParameters['token'] ?? '';
+        return ResetPasswordPage(token: token);
+      },
     ),
 
     // Main
