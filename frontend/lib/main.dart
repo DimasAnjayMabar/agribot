@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/users/chats/chats.dart';
+import 'package:frontend/chats/chats.dart';
 import 'package:frontend/users/forgot_password/request_otp.dart';
 import 'package:frontend/users/forgot_password/reset_password.dart';
 import 'package:frontend/users/forgot_password/verify_otp.dart';
