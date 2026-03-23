@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -13,6 +14,14 @@ final _dio = Dio(
     connectTimeout: const Duration(seconds: 10),
     receiveTimeout: const Duration(seconds: 10),
     headers: {'Content-Type': 'application/json'},
+  ),
+);
+
+final _storage = FlutterSecureStorage(
+  aOptions: const AndroidOptions(encryptedSharedPreferences: true),
+  webOptions: const WebOptions(
+    dbName: 'agribot_secure',
+    publicKey: 'agribot_key',
   ),
 );
 
@@ -30,27 +39,35 @@ const _textMuted = Color(0xFFA3A3A3);
 const _otpLength = 6;
 
 // ---------------------------------------------------------------------------
-// ForgotPasswordVerifyOtpPage
+// ChangeEmailVerifyOtpPage
+//
+// Flow:
+//   1. initState → request OTP otomatis ke /users/change-email/request-otp
+//      menggunakan email yang sedang login (dibaca dari secure storage)
+//   2. User masukkan OTP → POST /users/change-email/verify-otp
+//   3. Berhasil → navigate ke /users/change-email?token=...
 // ---------------------------------------------------------------------------
 
-class ForgotPasswordVerifyOtpPage extends StatefulWidget {
-  const ForgotPasswordVerifyOtpPage({super.key, required this.email});
+class ChangeEmailVerifyOtpPage extends StatefulWidget {
+  /// Email user yang sedang login — dikirim dari ChatsPage saat push route.
+  const ChangeEmailVerifyOtpPage({super.key, required this.email});
 
   final String email;
 
   @override
-  State<ForgotPasswordVerifyOtpPage> createState() =>
-      _ForgotPasswordVerifyOtpPageState();
+  State<ChangeEmailVerifyOtpPage> createState() =>
+      _ChangeEmailVerifyOtpPageState();
 }
 
-class _ForgotPasswordVerifyOtpPageState
-    extends State<ForgotPasswordVerifyOtpPage>
+class _ChangeEmailVerifyOtpPageState extends State<ChangeEmailVerifyOtpPage>
     with SingleTickerProviderStateMixin {
   final _otpController = TextEditingController();
 
-  bool _isVerifying   = false;
-  bool _isResending   = false;
-  bool _resendEnabled = true;
+  bool _isVerifying    = false;
+  bool _isResending    = false;
+  bool _resendEnabled  = true;
+  bool _requestingOtp  = true;   // true saat initState sedang request OTP pertama
+  String? _requestError;         // error saat request OTP pertama gagal
 
   late final AnimationController _fadeController;
   late final Animation<double>   _fadeAnimation;
@@ -66,6 +83,9 @@ class _ForgotPasswordVerifyOtpPageState
       parent: _fadeController,
       curve: Curves.easeOut,
     );
+
+    // Request OTP ke server segera setelah page dibuka
+    _requestInitialOtp();
   }
 
   @override
@@ -80,20 +100,46 @@ class _ForgotPasswordVerifyOtpPageState
   String get _otpValue    => _otpController.text.trim();
   bool   get _otpComplete => _otpValue.length == _otpLength;
 
-  // ── API calls ─────────────────────────────────────────────────────────────
+  // ── Request OTP pertama kali (otomatis saat page terbuka) ─────────────────
+
+  Future<void> _requestInitialOtp() async {
+    setState(() {
+      _requestingOtp = true;
+      _requestError  = null;
+    });
+    try {
+      await _dio.post(
+        '/users/change-email/request-otp',
+        data: {'email': widget.email},
+      );
+    } on DioException catch (e) {
+      if (!mounted) return;
+      String message = 'Gagal mengirim OTP. Coba lagi.';
+      if (e.response?.data['detail'] != null) {
+        message = e.response!.data['detail'].toString();
+      }
+      setState(() => _requestError = message);
+    } catch (_) {
+      if (mounted) setState(() => _requestError = 'Terjadi kesalahan tidak terduga.');
+    } finally {
+      if (mounted) setState(() => _requestingOtp = false);
+    }
+  }
+
+  // ── Verifikasi OTP ────────────────────────────────────────────────────────
 
   Future<void> _handleVerify() async {
     if (!_otpComplete) return;
     setState(() => _isVerifying = true);
     try {
       final response = await _dio.post(
-        '/users/reset-password/verify-otp',
+        '/users/change-email/verify-otp',
         data: {'email': widget.email, 'otp': _otpValue},
       );
       if (response.statusCode == 200 && mounted) {
-        final resetToken = response.data['data']['reset_token'] as String;
-        final token = Uri.encodeComponent(resetToken);
-        context.push('/users/reset-password?token=$token');
+        final changeToken = response.data['data']['change_token'] as String;
+        final token = Uri.encodeComponent(changeToken);
+        context.push('/users/change-email?token=$token');
       }
     } on DioException catch (e) {
       if (!mounted) return;
@@ -114,12 +160,14 @@ class _ForgotPasswordVerifyOtpPageState
     }
   }
 
+  // ── Kirim ulang OTP ───────────────────────────────────────────────────────
+
   Future<void> _handleResend() async {
     if (!_resendEnabled || _isResending) return;
     setState(() => _isResending = true);
     try {
       await _dio.post(
-        '/users/forgot-password',
+        '/users/change-email/request-otp',
         data: {'email': widget.email},
       );
       if (mounted) {
@@ -218,7 +266,7 @@ class _ForgotPasswordVerifyOtpPageState
                     ),
                     children: [
                       const TextSpan(
-                        text: 'Kode OTP reset password telah dikirim ke\n',
+                        text: 'Kode OTP ganti email telah dikirim ke\n',
                       ),
                       TextSpan(
                         text: widget.email,
@@ -233,66 +281,134 @@ class _ForgotPasswordVerifyOtpPageState
                 ),
                 const SizedBox(height: 40),
 
-                // ── OTP Field ─────────────────────────────────────────────
-                _NeonField(
-                  controller: _otpController,
-                  label: 'Kode OTP',
-                  hint: 'Masukkan 6 digit kode OTP',
-                  icon: Icons.pin_outlined,
-                  keyboardType: TextInputType.number,
-                  maxLength: _otpLength,
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: 40),
-
-                // ── Verify button ─────────────────────────────────────────
-                _NeonButton(
-                  label: 'Verifikasi',
-                  isLoading: _isVerifying,
-                  enabled: _otpComplete,
-                  onPressed: _handleVerify,
-                ),
-                const SizedBox(height: 28),
-
-                // ── Resend ────────────────────────────────────────────────
-                Center(
-                  child: _isResending
-                      ? SizedBox(
-                          width: 18,
-                          height: 18,
+                // ── Loading / error saat request OTP awal ─────────────────
+                if (_requestingOtp)
+                  Center(
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          width: 22,
+                          height: 22,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: _neon.withOpacity(0.6),
+                            color: _neon.withOpacity(0.7),
                           ),
-                        )
-                      : RichText(
-                          text: TextSpan(
-                            style: GoogleFonts.poppins(
-                              fontSize: 13,
-                              color: _textMuted,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Mengirim kode OTP...',
+                          style: GoogleFonts.poppins(
+                            fontSize: 13,
+                            color: _textMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (_requestError != null)
+                  // Error saat request OTP awal — tampilkan pesan + tombol retry
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF4D4D).withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: const Color(0xFFFF4D4D).withOpacity(0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.error_outline_rounded,
+                              color: Color(0xFFFF4D4D),
+                              size: 18,
                             ),
-                            children: [
-                              const TextSpan(text: 'Tidak menerima kode? '),
-                              WidgetSpan(
-                                alignment: PlaceholderAlignment.middle,
-                                child: GestureDetector(
-                                  onTap: _resendEnabled ? _handleResend : null,
-                                  child: Text(
-                                    'Kirim ulang',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: _resendEnabled
-                                          ? _neon
-                                          : _textMuted,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _requestError!,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 13,
+                                  color: const Color(0xFFFF4D4D),
+                                  height: 1.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _NeonButton(
+                        label: 'Coba Kirim Ulang',
+                        onPressed: _requestInitialOtp,
+                      ),
+                    ],
+                  )
+                else ...[
+                  // ── OTP Field ───────────────────────────────────────────
+                  _NeonField(
+                    controller: _otpController,
+                    label: 'Kode OTP',
+                    hint: 'Masukkan 6 digit kode OTP',
+                    icon: Icons.pin_outlined,
+                    keyboardType: TextInputType.number,
+                    maxLength: _otpLength,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 40),
+
+                  // ── Verify button ────────────────────────────────────────
+                  _NeonButton(
+                    label: 'Verifikasi',
+                    isLoading: _isVerifying,
+                    enabled: _otpComplete,
+                    onPressed: _handleVerify,
+                  ),
+                  const SizedBox(height: 28),
+
+                  // ── Resend ───────────────────────────────────────────────
+                  Center(
+                    child: _isResending
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: _neon.withOpacity(0.6),
+                            ),
+                          )
+                        : RichText(
+                            text: TextSpan(
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                color: _textMuted,
+                              ),
+                              children: [
+                                const TextSpan(text: 'Tidak menerima kode? '),
+                                WidgetSpan(
+                                  alignment: PlaceholderAlignment.middle,
+                                  child: GestureDetector(
+                                    onTap: _resendEnabled ? _handleResend : null,
+                                    child: Text(
+                                      'Kirim ulang',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: _resendEnabled
+                                            ? _neon
+                                            : _textMuted,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                ),
+                  ),
+                ],
               ],
             ),
           ),

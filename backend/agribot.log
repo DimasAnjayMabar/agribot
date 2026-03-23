@@ -180,3 +180,105 @@
 2026-03-22 11:07:37  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
 2026-03-22 11:07:37  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
 2026-03-22 11:07:37  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-03-23 11:50:01  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-03-23 11:50:01  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-03-23 11:50:01  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-03-23 11:50:01  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(openai/gpt-oss-120b)
+2026-03-23 11:50:01  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-03-23 11:50:16  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (15.46s)
+2026-03-23 11:50:16  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-03-23 11:50:23  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (6.53s)
+2026-03-23 11:50:23  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=openai/gpt-oss-120b
+2026-03-23 11:50:23  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-03-23 11:50:23  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-03-23 11:50:31  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (8.06s)
+2026-03-23 11:50:31  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-03-23 11:50:31  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: E:\proyek magang\chatbot3\chroma_db
+2026-03-23 11:50:42  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-03-23 11:50:42  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-03-23 11:50:42  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-03-23 11:55:31  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-03-23 11:55:31  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-03-23 11:55:31  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-03-23 11:55:31  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(openai/gpt-oss-120b)
+2026-03-23 11:55:31  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-03-23 11:55:40  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (9.45s)
+2026-03-23 11:55:40  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-03-23 11:55:47  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (6.64s)
+2026-03-23 11:55:47  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=openai/gpt-oss-120b
+2026-03-23 11:55:47  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-03-23 11:55:47  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-03-23 11:55:53  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (6.00s)
+2026-03-23 11:55:53  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-03-23 11:55:53  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: E:\proyek magang\chatbot3\chroma_db
+2026-03-23 11:55:59  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-03-23 11:55:59  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-03-23 11:55:59  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-03-23 11:57:07  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-03-23 11:57:07  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-03-23 11:57:07  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-03-23 11:57:07  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(openai/gpt-oss-120b)
+2026-03-23 11:57:07  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-03-23 11:57:28  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (21.34s)
+2026-03-23 11:57:28  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-03-23 11:57:34  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (6.46s)
+2026-03-23 11:57:34  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=openai/gpt-oss-120b
+2026-03-23 11:57:35  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-03-23 11:57:35  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-03-23 11:57:41  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (6.32s)
+2026-03-23 11:57:41  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-03-23 11:57:41  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: E:\proyek magang\chatbot3\chroma_db
+2026-03-23 11:57:46  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-03-23 11:57:46  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-03-23 11:57:46  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-03-23 13:46:32  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-03-23 13:46:32  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-03-23 13:46:32  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-03-23 13:46:32  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(openai/gpt-oss-120b)
+2026-03-23 13:46:32  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-03-23 13:46:42  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (9.50s)
+2026-03-23 13:46:42  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-03-23 13:46:49  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (6.72s)
+2026-03-23 13:46:49  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=openai/gpt-oss-120b
+2026-03-23 13:46:49  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-03-23 13:46:49  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-03-23 13:46:55  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (6.30s)
+2026-03-23 13:46:55  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-03-23 13:46:55  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: E:\proyek magang\chatbot3\chroma_db
+2026-03-23 13:47:02  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-03-23 13:47:02  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-03-23 13:47:02  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-03-23 14:51:03  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-03-23 14:51:03  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-03-23 14:51:03  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-03-23 14:51:03  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(openai/gpt-oss-120b)
+2026-03-23 14:51:03  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-03-23 14:51:13  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (9.84s)
+2026-03-23 14:51:13  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-03-23 14:51:20  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (7.26s)
+2026-03-23 14:51:20  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=openai/gpt-oss-120b
+2026-03-23 14:51:20  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-03-23 14:51:20  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-03-23 14:51:27  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (6.24s)
+2026-03-23 14:51:27  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-03-23 14:51:27  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: E:\proyek magang\chatbot3\chroma_db
+2026-03-23 14:51:34  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-03-23 14:51:34  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-03-23 14:51:34  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-03-23 14:53:35  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-03-23 14:53:35  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-03-23 14:53:35  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-03-23 14:53:35  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(openai/gpt-oss-120b)
+2026-03-23 14:53:35  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-03-23 14:53:45  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (9.76s)
+2026-03-23 14:53:45  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-03-23 14:53:52  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (7.17s)
+2026-03-23 14:53:52  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=openai/gpt-oss-120b
+2026-03-23 14:53:53  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-03-23 14:53:53  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-03-23 14:53:59  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (6.20s)
+2026-03-23 14:53:59  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-03-23 14:53:59  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: E:\proyek magang\chatbot3\chroma_db
+2026-03-23 14:54:04  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-03-23 14:54:04  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-03-23 14:54:04  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.

@@ -218,6 +218,14 @@ class _ChatsPageState extends State<ChatsPage>
           _storage.write(key: 'refresh_token', value: newRefresh),
         ]);
 
+        // Update created_at session jika server mengembalikannya
+        if (data['created_at'] != null) {
+          await _storage.write(
+            key: 'session_created_at',
+            value: data['created_at'] as String,
+          );
+        }
+
         // Update state — request berikutnya langsung pakai token baru
         if (mounted) setState(() => _accessToken = newAccess);
       }
@@ -240,6 +248,7 @@ class _ChatsPageState extends State<ChatsPage>
       _storage.delete(key: 'access_token'),
       _storage.delete(key: 'refresh_token'),
       _storage.delete(key: 'user_id'),
+      _storage.delete(key: 'session_created_at'),
     ]);
     if (mounted) context.go('/users/login');
   }
@@ -321,6 +330,7 @@ class _ChatsPageState extends State<ChatsPage>
         _storage.delete(key: 'access_token'),
         _storage.delete(key: 'refresh_token'),
         _storage.delete(key: 'user_id'),
+        _storage.delete(key: 'session_created_at'),
       ]);
 
       if (mounted) context.go('/users/login');
@@ -526,7 +536,12 @@ class _ChatsPageState extends State<ChatsPage>
                             delegate: SliverChildListDelegate([
                               _ProfileCard(user: _user!),
                               const SizedBox(height: 24),
-                              _CredentialCard(user: _user!),
+                              _CredentialCard(
+                                user: _user!,
+                                onChangeEmail: () => context.push(
+                                  '/users/change-email/otp/verify-otp?email=${Uri.encodeComponent(_user!.email)}',
+                                ).then((_) => _fetchData()),
+                              ),
                               const SizedBox(height: 24),
                               _SessionsCard(
                                 sessions: _sessions,
@@ -738,8 +753,9 @@ class _StatusBadge extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _CredentialCard extends StatelessWidget {
-  const _CredentialCard({required this.user});
-  final _UserData user;
+  const _CredentialCard({required this.user, this.onChangeEmail});
+  final _UserData    user;
+  final VoidCallback? onChangeEmail;
 
   @override
   Widget build(BuildContext context) {
@@ -747,10 +763,49 @@ class _CredentialCard extends StatelessWidget {
       title: 'Informasi Akun',
       icon: Icons.badge_outlined,
       children: [
-        _InfoRow(
-          icon : Icons.mail_outline_rounded,
-          label: 'Email',
-          value: user.email,
+        // Email row + anchor ganti email
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            children: [
+              const Icon(Icons.mail_outline_rounded, size: 16, color: _textMuted),
+              const SizedBox(width: 10),
+              Text(
+                'Email',
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: _textMuted,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    user.email,
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  GestureDetector(
+                    onTap: onChangeEmail,
+                    child: Text(
+                      'Ganti Email',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        color: _neon,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
         _Divider(),
         _InfoRow(
@@ -826,7 +881,10 @@ class _SessionTile extends StatelessWidget {
 
   String _formatDate(String iso) {
     try {
-      final dt  = DateTime.parse(iso).toLocal();
+      // Server menyimpan created_at dalam UTC tanpa suffix 'Z'.
+      // Tambahkan 'Z' agar DateTime.parse tahu ini UTC, baru konversi ke local.
+      final normalized = iso.endsWith('Z') ? iso : '${iso}Z';
+      final dt  = DateTime.parse(normalized).toLocal();
       final now = DateTime.now();
       final diff = now.difference(dt);
       if (diff.inMinutes < 1)  return 'Baru saja';

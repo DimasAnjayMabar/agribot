@@ -29,6 +29,7 @@ class User(Base):
     auth_sessions = relationship("UserAuth", back_populates="user", cascade="all, delete-orphan")
     registration_otps = relationship("OTPRegistrasi", back_populates="user", cascade="all, delete-orphan")
     reset_password_otps = relationship("OTPResetPassword", back_populates="user", cascade="all, delete-orphan")
+    change_email_otps = relationship("OTPChangeEmail", back_populates="user", cascade="all, delete-orphan")
     chats = relationship("Chat", back_populates="owner", cascade="all, delete-orphan")
 
 
@@ -108,6 +109,31 @@ class OTPResetPassword(Base):
     # Relationships
     user = relationship("User", back_populates="reset_password_otps")
 
+# --- 4. TABEL OTP CHANGE EMAIL ---
+class OTPChangeEmail(Base): 
+    __tablename__ = "otp_change_email"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    # Gunakan String(6) agar kode seperti 001234 tidak terbaca sebagai 1234
+    otp = Column(String(6), nullable=False)
+    otp_expires_at = Column(DateTime, nullable=False)
+    is_used = Column(Boolean, default=False, nullable=False)
+
+    # Untuk invalidate OTP lama & rate limiting
+    is_invalidated = Column(Boolean, default=False, nullable=False)
+
+    # Urutan request OTP hari ini — untuk exponential backoff & limit harian
+    request_count_today = Column(Integer, default=1, nullable=False)
+
+    change_token = Column(String(255), unique=True, nullable=True)
+    change_token_expires_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # Relationships
+    user = relationship("User", back_populates="change_email_otps")
 
 # --- 5. TABEL CHAT (HEADER) ---
 class Chat(Base):

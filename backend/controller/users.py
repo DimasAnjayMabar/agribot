@@ -8,11 +8,11 @@ from validation.users import (
     RegisterSchema,
     LoginSchema,
     RequestOtpSchema,
-    VerifyOtpRegistrasiSchema,
-    VerifyOtpResetSchema,
+    VerifyOtp,
     ResetPasswordSchema,
     RefreshTokenSchema,
     BulkLogoutSchema,
+    ChangeEmailSchema
 )
 from middleware.auth import get_current_session
 from models import UserAuth
@@ -81,7 +81,7 @@ def resend_registration_otp(body: RequestOtpSchema, db: Session = Depends(get_db
 
 
 @router.post("/register/verify-otp", status_code=status.HTTP_200_OK)
-def verify_registration_otp(otp_input: VerifyOtpRegistrasiSchema, db: Session = Depends(get_db)):
+def verify_registration_otp(otp_input: VerifyOtp, db: Session = Depends(get_db)):
     logger.debug(f"POST /register/verify-otp → {otp_input.email}")
     try:
         UserService.verify_registration_otp(db, otp_input)
@@ -305,9 +305,9 @@ def logout_other_devices(
 # LUPA PASSWORD
 # =============================================================================
 
-@router.post("/forgot-password", status_code=status.HTTP_200_OK)
-def forgot_password(body: RequestOtpSchema, db: Session = Depends(get_db)):
-    logger.debug(f"POST /forgot-password → {body.email}")
+@router.post("/reset-password/request-otp", status_code=status.HTTP_200_OK)
+def request_reset_password_otp(body: RequestOtpSchema, db: Session = Depends(get_db)):
+    logger.debug(f"POST /reset-password/request-otp → {body.email}")
     try:
         UserService.request_password_reset_otp(db, body.email)
         return JSONResponse(
@@ -315,16 +315,15 @@ def forgot_password(body: RequestOtpSchema, db: Session = Depends(get_db)):
             content={"success": True, "message": "Jika email terdaftar, OTP akan dikirimkan."}
         )
     except HTTPException as e:
-        logger.warning(f"POST /forgot-password failed → {e.detail}")
+        logger.warning(f"POST /reset-password/request-otp failed → {e.detail}")
         raise e
     except Exception as e:
-        logger.error(f"POST /forgot-password error → {e}")
+        logger.error(f"POST /reset-password/request-otp error → {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat mengirim OTP.")
 
-
-@router.post("/forgot-password/verify-otp", status_code=status.HTTP_200_OK)
-def verify_reset_otp(otp_input: VerifyOtpResetSchema, db: Session = Depends(get_db)):
-    logger.debug(f"POST /forgot-password/verify-otp → {otp_input.email}")
+@router.post("/reset-password/verify-otp", status_code=status.HTTP_200_OK)
+def verify_reset_password_otp(otp_input: VerifyOtp, db: Session = Depends(get_db)):
+    logger.debug(f"POST /reset-password/verify-otp → {otp_input.email}")
     try:
         reset_token = UserService.verify_reset_otp(db, otp_input)
         return JSONResponse(
@@ -336,10 +335,10 @@ def verify_reset_otp(otp_input: VerifyOtpResetSchema, db: Session = Depends(get_
             }
         )
     except HTTPException as e:
-        logger.warning(f"POST /forgot-password/verify-otp failed → {e.detail}")
+        logger.warning(f"POST /reset-password/verify-otp failed → {e.detail}")
         raise e
     except Exception as e:
-        logger.error(f"POST /forgot-password/verify-otp error → {e}")
+        logger.error(f"POST /reset-password/verify-otp error → {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat verifikasi OTP.")
 
 @router.post("/reset-password", status_code=status.HTTP_200_OK)
@@ -361,6 +360,62 @@ def reset_password(reset_input: ResetPasswordSchema, db: Session = Depends(get_d
     except Exception as e:
         logger.error(f"POST /reset-password error → {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat reset password.")
+    
+# =============================================================================
+# CHANGE EMAIL
+# =============================================================================
+
+@router.post("/change-email/request-otp", status_code=status.HTTP_200_OK)
+def request_change_email_otp(body: RequestOtpSchema, db: Session = Depends(get_db)):
+    logger.debug(f"POST /change-email/request-otp → {body.email}")
+    try:
+        UserService.request_change_email_otp(db, body.email)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "message": "Jika email terdaftar, OTP akan dikirimkan."}
+        )
+    except HTTPException as e:
+        logger.warning(f"POST /change-email/request-otp failed → {e.detail}")
+        raise e
+    except Exception as e:
+        logger.error(f"POST /change-email/request-otp error → {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat mengirim OTP.")
+    
+@router.post("/change-email/verify-otp", status_code=status.HTTP_200_OK)
+def verify_change_email_otp(otp_input: VerifyOtp, db: Session = Depends(get_db)):
+    logger.debug(f"POST /change-email/verify-otp → {otp_input.email}")
+    try:
+        change_token = UserService.verify_change_email_otp(db, otp_input)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "OTP berhasil diverifikasi.",
+                "data": {"change_token": change_token}
+            }
+        )
+    except HTTPException as e:
+        logger.warning(f"POST /change-email/verify-otp failed → {e.detail}")
+        raise e
+    except Exception as e:
+        logger.error(f"POST /change-email/verify-otp error → {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat verifikasi OTP.")
+    
+@router.post("/change-email", status_code=status.HTTP_200_OK)
+def change_email(change_input: ChangeEmailSchema, db: Session = Depends(get_db)):
+    logger.debug(f"POST /change-email → token: {change_input.token}")
+    try:
+        UserService.change_email(db, change_input)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "message": "Email berhasil diubah"}
+        )
+    except HTTPException as e:
+        logger.warning(f"POST /change-email failed → {e.detail}")
+        raise e
+    except Exception as e:
+        logger.error(f"POST /change-email error → {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat mengubah email.")
 
 # =============================================================================
 # USER DATA

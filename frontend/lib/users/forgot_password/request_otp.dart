@@ -77,13 +77,13 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
 
     try {
       final response = await _dio.post(
-        '/users/forgot-password',
+        '/users/reset-password/request-otp',
         data: {'email': _emailController.text.trim()},
       );
 
       if (response.statusCode == 200 && mounted) {
         final email = Uri.encodeComponent(_emailController.text.trim());
-        context.push('/users/forgot-password/verify-otp?email=$email');
+        context.push('/users/reset-password/otp/verify-otp?email=$email');
       }
     } on DioException catch (e) {
       if (!mounted) return;

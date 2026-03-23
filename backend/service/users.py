@@ -8,14 +8,13 @@ import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from passlib.context import CryptContext
-from models import User, UserAuth, OTPRegistrasi, OTPResetPassword
+from models import User, UserAuth, OTPRegistrasi, OTPResetPassword, OTPChangeEmail
 from validation.users import (
     RegisterSchema,
     LoginSchema,
-    VerifyOtpRegistrasiSchema,
-    VerifyOtpResetSchema,
+    VerifyOtp,
     ResetPasswordSchema,
-    RefreshTokenSchema,
+    ChangeEmailSchema
 )
 from database import settings
 from fastapi import HTTPException, status
@@ -219,13 +218,17 @@ class UserService:
     @staticmethod
     def _send_otp_email(to_email: str, to_name: str, otp_code: str, purpose: str) -> bool:
         if purpose == "registrasi":
-            subject  = "Kode OTP Verifikasi Akun AgriBot"
+            subject  = "Kode OTP Verifikasi akun AgriBot"
             title    = "Verifikasi Akun"
             subtitle = "Konfirmasi alamat email kamu"
-        else:
-            subject  = "Kode OTP Reset Password AgriBot"
+        elif purpose == "reset_password":
+            subject  = "Kode OTP Reset Password akun AgriBot"
             title    = "Reset Password"
             subtitle = "Permintaan penggantian password"
+        elif purpose == "change_email":
+            subject = "Kode OTP change email akun Agribot"
+            title = "Change Email"
+            subtitle = "Penggantian alamat email"
 
         html_body = UserService._build_otp_email_html(otp_code, title, subtitle, OTP_EXPIRES_MINUTES)
 
@@ -251,6 +254,85 @@ class UserService:
             return False
         except Exception as e:
             logger.error(f"Email OTP gagal → unexpected error: {e}")
+            return False
+
+    @staticmethod
+    def _build_notification_email_html(title: str, body_text: str) -> str:
+        return f"""
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{title}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f8;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0"
+               style="background:#ffffff;border-radius:12px;overflow:hidden;
+                      box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+          <tr>
+            <td align="center"
+                style="background:linear-gradient(135deg,#2d6a4f,#52b788);
+                       padding:36px 40px 28px;">
+              <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">🌿 AgriBot</h1>
+              <p style="margin:8px 0 0;color:#d8f3dc;font-size:13px;">{title}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:36px 40px 24px;">
+              <p style="margin:0 0 16px;color:#333333;font-size:15px;">Halo,</p>
+              <p style="margin:0 0 24px;color:#555555;font-size:14px;line-height:1.7;">
+                {body_text}
+              </p>
+              <p style="margin:0;color:#888888;font-size:12px;line-height:1.6;">
+                Jika kamu tidak merasa melakukan perubahan ini, segera hubungi tim support AgriBot.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#f9fafb;padding:18px 40px;border-top:1px solid #eeeeee;">
+              <p style="margin:0;color:#aaaaaa;font-size:11px;text-align:center;">
+                © 2025 AgriBot · Email ini dikirim otomatis, mohon tidak membalas.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+ 
+    @staticmethod
+    def _send_notification_email(to_email: str, to_name: str, subject: str, title: str, body_text: str) -> bool:
+        html_body = UserService._build_notification_email_html(title, body_text)
+ 
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"]    = f"AgriBot <{settings.MAIL_FROM}>"
+        msg["To"]      = f"{to_name} <{to_email}>"
+        msg.attach(MIMEText(html_body, "html"))
+ 
+        try:
+            with smtplib.SMTP(settings.MAIL_HOST, settings.MAIL_PORT) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(settings.MAIL_USERNAME, settings.MAIL_PASSWORD)
+                server.sendmail(settings.MAIL_FROM, to_email, msg.as_string())
+            logger.info(f"Notification email terkirim → {to_email}")
+            return True
+        except smtplib.SMTPAuthenticationError:
+            logger.error(f"Notification email gagal → autentikasi SMTP gagal untuk {to_email}")
+            return False
+        except smtplib.SMTPException as e:
+            logger.error(f"Notification email gagal → SMTP error: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Notification email gagal → unexpected error: {e}")
             return False
 
     # -------------------------------------------------------------------------
@@ -330,7 +412,7 @@ class UserService:
         return True
 
     @staticmethod
-    def verify_registration_otp(db: Session, otp_input: VerifyOtpRegistrasiSchema):
+    def verify_registration_otp(db: Session, otp_input: VerifyOtp):
         user = db.query(User).filter(User.email == otp_input.email).first()
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan.")
@@ -597,7 +679,7 @@ class UserService:
         return True
 
     @staticmethod
-    def verify_reset_otp(db: Session, otp_input: VerifyOtpResetSchema):
+    def verify_reset_otp(db: Session, otp_input: VerifyOtp):
         user = db.query(User).filter(User.email == otp_input.email).first()
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan.")
@@ -659,6 +741,129 @@ class UserService:
         db.commit()
 
         logger.info(f"Password reset success → user_id: {user.id}, semua session dan OTP reset dihapus")
+        return True
+
+    # -------------------------------------------------------------------------
+    # CHANGE EMAIL
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def request_change_email_otp(db: Session, email: str):
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            return True
+        if not user.is_verified:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Akun belum diverifikasi.")
+
+        last_otp = UserService._get_last_otp(db, OTPChangeEmail, user.id)
+        UserService._check_otp_rate_limit(db, OTPChangeEmail, user.id, last_otp)
+        UserService._invalidate_previous_otps(db, OTPChangeEmail, user.id)
+
+        count_today = UserService._get_otp_count_today(db, OTPChangeEmail, user.id)
+        otp_code = UserService._generate_otp()
+        db.add(OTPChangeEmail(
+            user_id=user.id,
+            otp=otp_code,
+            otp_expires_at=datetime.utcnow() + timedelta(minutes=OTP_EXPIRES_MINUTES),
+            request_count_today=count_today + 1,
+        ))
+        db.commit()
+
+        sent = UserService._send_otp_email(user.email, user.name, otp_code, "change_email")
+        if not sent:
+            logger.warning(f"Change email OTP email gagal → user_id: {user.id}")
+
+        return True
+    
+    @staticmethod
+    def verify_change_email_otp(db: Session, otp_input: VerifyOtp):
+        user = db.query(User).filter(User.email == otp_input.email).first()
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan.")
+
+        otp_entry = db.query(OTPChangeEmail).filter(
+            OTPChangeEmail.user_id == user.id,
+            OTPChangeEmail.otp == otp_input.otp,
+            OTPChangeEmail.is_used == False,
+            OTPChangeEmail.is_invalidated == False,
+            OTPChangeEmail.otp_expires_at > datetime.utcnow()
+        ).first()
+
+        if not otp_entry:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OTP tidak valid atau sudah kadaluarsa.")
+
+        change_token = secrets.token_urlsafe(32)
+        otp_entry.is_used                = True
+        otp_entry.change_token            = change_token
+        otp_entry.change_token_expires_at = datetime.utcnow() + timedelta(minutes=RESET_TOKEN_EXPIRES_MINUTES)
+        db.commit()
+
+        logger.info(f"Change email OTP verified → user_id: {user.id}")
+        return change_token
+    
+    @staticmethod
+    def change_email(db: Session, change_input: ChangeEmailSchema):
+        """
+        Ganti email user setelah verifikasi change_email token.
+        Kirim notifikasi ke alamat email LAMA setelah perubahan berhasil.
+        """
+        otp_entry = db.query(OTPChangeEmail).filter(
+            OTPChangeEmail.change_token == change_input.token,
+            OTPChangeEmail.is_used == True,
+            OTPChangeEmail.change_token_expires_at > datetime.utcnow()
+        ).first()
+ 
+        if not otp_entry:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Change email token tidak valid atau sudah kadaluarsa."
+            )
+ 
+        user = db.query(User).filter(User.id == otp_entry.user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User tidak ditemukan."
+            )
+ 
+        if change_input.new_email == user.email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email baru tidak boleh sama dengan email sebelumnya"
+            )
+ 
+        existing = db.query(User).filter(User.email == change_input.new_email).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email sudah digunakan di akun lain"
+            )
+ 
+        old_email = user.email  # simpan sebelum diubah untuk notifikasi
+        user.email = change_input.new_email
+ 
+        # Hapus semua OTP change email milik user
+        db.query(OTPChangeEmail).filter(OTPChangeEmail.user_id == user.id).delete()
+ 
+        db.commit()
+ 
+        logger.info(f"Change email success → user_id: {user.id}, {old_email} → {change_input.new_email}")
+ 
+        # Kirim notifikasi ke email LAMA — non-blocking, tidak pengaruhi response
+        sent = UserService._send_notification_email(
+            to_email  = old_email,
+            to_name   = user.name,
+            subject   = "Notifikasi Perubahan Email Akun AgriBot",
+            title     = "Email Akun Diubah",
+            body_text = (
+                f"Email akun AgriBot kamu telah berhasil diubah dari "
+                f"<strong>{old_email}</strong> menjadi "
+                f"<strong>{change_input.new_email}</strong>.<br><br>"
+                f"Jika kamu tidak merasa melakukan perubahan ini, segera hubungi tim support AgriBot."
+            ),
+        )
+        if not sent:
+            logger.warning(f"Notifikasi email lama gagal dikirim → {old_email}")
+ 
         return True
 
     # -------------------------------------------------------------------------

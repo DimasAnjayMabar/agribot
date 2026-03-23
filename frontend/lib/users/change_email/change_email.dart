@@ -1,6 +1,5 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -17,46 +16,37 @@ final _dio = Dio(
   ),
 );
 
-// Secure Storage — final bukan const agar tidak crash di web
-final _storage = FlutterSecureStorage(
-  aOptions: const AndroidOptions(encryptedSharedPreferences: true),
-  webOptions: const WebOptions(
-    dbName: 'agribot_secure',
-    publicKey: 'agribot_key',
-  ),
-);
-
 // ---------------------------------------------------------------------------
 // Warna & konstanta
 // ---------------------------------------------------------------------------
 
-const _bg       = Color(0xFF020202);
-const _neon     = Color(0xFF16DB65);
-const _neonDim  = Color(0x3316DB65);
-const _surface  = Color(0xFF0D0D0D);
-const _border   = Color(0xFF16DB65);
+const _bg        = Color(0xFF020202);
+const _neon      = Color(0xFF16DB65);
+const _neonDim   = Color(0x3316DB65);
+const _surface   = Color(0xFF0D0D0D);
+const _border    = Color(0xFF16DB65);
 const _textMuted = Color(0xFFA3A3A3);
 
 // ---------------------------------------------------------------------------
-// LoginPage
+// ChangeEmailPage
 // ---------------------------------------------------------------------------
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+class ChangeEmailPage extends StatefulWidget {
+  const ChangeEmailPage({super.key, required this.token});
+
+  /// change_token dari hasil verify OTP sebelumnya
+  final String token;
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State<ChangeEmailPage> createState() => _ChangeEmailPageState();
 }
 
-class _LoginPageState extends State<LoginPage>
+class _ChangeEmailPageState extends State<ChangeEmailPage>
     with SingleTickerProviderStateMixin {
-  final _formKey = GlobalKey<FormState>();
+  final _formKey            = GlobalKey<FormState>();
+  final _newEmailController = TextEditingController();
 
-  final _identifierController = TextEditingController();
-  final _passwordController   = TextEditingController();
-
-  bool _obscurePassword = true;
-  bool _isLoading       = false;
+  bool _isLoading = false;
 
   late final AnimationController _fadeController;
   late final Animation<double>   _fadeAnimation;
@@ -78,36 +68,29 @@ class _LoginPageState extends State<LoginPage>
   @override
   void dispose() {
     _fadeController.dispose();
-    _identifierController.dispose();
-    _passwordController.dispose();
+    _newEmailController.dispose();
     super.dispose();
   }
 
-  // ── Hit API login ──────────────────────────────────────────────────────────
+  // ── Hit API change-email ──────────────────────────────────────────────────
 
-  Future<void> _handleLogin() async {
+  Future<void> _handleChangeEmail() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
     try {
       final response = await _dio.post(
-        '/users/login',
+        '/users/change-email',
         data: {
-          'identifier': _identifierController.text.trim(),
-          'password'  : _passwordController.text,
+          'token'    : widget.token,
+          'new_email': _newEmailController.text.trim(),
         },
       );
 
       if (response.statusCode == 200 && mounted) {
-        final data = response.data['data'] as Map<String, dynamic>;
-
-        // Tulis sequential — IndexedDB web tidak support concurrent writes
-        await _storage.write(key: 'access_token',  value: data['access_token']  as String);
-        await _storage.write(key: 'refresh_token', value: data['refresh_token'] as String);
-        await _storage.write(key: 'user_id',       value: (data['user_id'] as int).toString());
-
-        if (!mounted) return;
-        context.go('/chats');
+        _showSuccessSnackbar('Email berhasil diubah.');
+        await Future.delayed(const Duration(milliseconds: 800));
+        if (mounted) context.go('/chats');
       }
     } on DioException catch (e) {
       if (!mounted) return;
@@ -126,6 +109,8 @@ class _LoginPageState extends State<LoginPage>
     }
   }
 
+  // ── Snackbars ─────────────────────────────────────────────────────────────
+
   void _showErrorSnackbar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -143,6 +128,23 @@ class _LoginPageState extends State<LoginPage>
       ),
     );
   }
+
+  void _showSuccessSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+        ),
+        backgroundColor: _neon,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -164,7 +166,7 @@ class _LoginPageState extends State<LoginPage>
 
                   // ── Heading ───────────────────────────────────────────────
                   Text(
-                    'Masuk',
+                    'Ganti Email',
                     style: GoogleFonts.poppins(
                       fontSize: 28,
                       fontWeight: FontWeight.w700,
@@ -174,104 +176,40 @@ class _LoginPageState extends State<LoginPage>
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Selamat datang kembali di AgriBot.',
+                    'Masukkan alamat email baru untuk akunmu.',
                     style: GoogleFonts.poppins(
                       fontSize: 13,
                       color: _textMuted,
-                      height: 1.5,
+                      height: 1.6,
                     ),
                   ),
                   const SizedBox(height: 36),
 
-                  // ── Fields ────────────────────────────────────────────────
+                  // ── Email baru ────────────────────────────────────────────
                   _NeonField(
-                    controller: _identifierController,
-                    label: 'Username atau Email',
-                    hint: '@johndoe atau johndoe@email.com',
-                    icon: Icons.alternate_email_rounded,
+                    controller: _newEmailController,
+                    label: 'Email Baru',
+                    hint: 'contoh@email.com',
+                    icon: Icons.mail_outline_rounded,
+                    keyboardType: TextInputType.emailAddress,
                     validator: (v) {
-                      if (v == null || v.isEmpty) {
-                        return 'Username atau email tidak boleh kosong';
+                      if (v == null || v.trim().isEmpty) {
+                        return 'Email tidak boleh kosong';
+                      }
+                      final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                      if (!emailRegex.hasMatch(v.trim())) {
+                        return 'Format email tidak valid';
                       }
                       return null;
                     },
                   ),
-                  const SizedBox(height: 20),
-
-                  _NeonField(
-                    controller: _passwordController,
-                    label: 'Password',
-                    hint: '••••••••',
-                    icon: Icons.lock_outline_rounded,
-                    obscureText: _obscurePassword,
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                        color: _neon,
-                        size: 20,
-                      ),
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
-                    ),
-                    validator: (v) {
-                      if (v == null || v.isEmpty) return 'Password tidak boleh kosong';
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 14),
-
-                  // ── Lupa Password anchor ───────────────────────────────────
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: GestureDetector(
-                      onTap: () => context.push('/users/reset-password/otp'),
-                      child: Text(
-                        'Lupa password?',
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          color: _neon,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ),
                   const SizedBox(height: 32),
 
-                  // ── Submit button ──────────────────────────────────────────
+                  // ── Submit button ─────────────────────────────────────────
                   _NeonButton(
-                    label: 'Masuk',
+                    label: 'Simpan Email Baru',
                     isLoading: _isLoading,
-                    onPressed: _handleLogin,
-                  ),
-                  const SizedBox(height: 28),
-
-                  // ── Belum punya akun ───────────────────────────────────────
-                  Center(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Belum punya akun? ',
-                          style: GoogleFonts.poppins(
-                            fontSize: 13,
-                            color: _textMuted,
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: () => context.push('/users/register'),
-                          child: Text(
-                            'Daftar sekarang',
-                            style: GoogleFonts.poppins(
-                              fontSize: 13,
-                              color: _neon,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    onPressed: _handleChangeEmail,
                   ),
                 ],
               ),
@@ -335,9 +273,7 @@ class _NeonField extends StatefulWidget {
     required this.label,
     required this.hint,
     required this.icon,
-    this.obscureText = false,
     this.keyboardType,
-    this.suffixIcon,
     this.validator,
   });
 
@@ -345,9 +281,7 @@ class _NeonField extends StatefulWidget {
   final String label;
   final String hint;
   final IconData icon;
-  final bool obscureText;
   final TextInputType? keyboardType;
-  final Widget? suffixIcon;
   final String? Function(String?)? validator;
 
   @override
@@ -387,10 +321,11 @@ class _NeonFieldState extends State<_NeonField> {
                 : [],
           ),
           child: Focus(
-            onFocusChange: (f) { if (mounted) setState(() => _focused = f); },
+            onFocusChange: (f) {
+              if (mounted) setState(() => _focused = f);
+            },
             child: TextFormField(
               controller: widget.controller,
-              obscureText: widget.obscureText,
               keyboardType: widget.keyboardType,
               validator: widget.validator,
               style: GoogleFonts.poppins(
@@ -410,7 +345,6 @@ class _NeonFieldState extends State<_NeonField> {
                   color: _focused ? _neon : _textMuted,
                   size: 20,
                 ),
-                suffixIcon: widget.suffixIcon,
                 filled: true,
                 fillColor: _surface,
                 contentPadding: const EdgeInsets.symmetric(
@@ -419,7 +353,8 @@ class _NeonFieldState extends State<_NeonField> {
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF1A1A1A), width: 1.5),
+                  borderSide:
+                      const BorderSide(color: Color(0xFF1A1A1A), width: 1.5),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -427,11 +362,13 @@ class _NeonFieldState extends State<_NeonField> {
                 ),
                 errorBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.red.shade700, width: 1.5),
+                  borderSide:
+                      BorderSide(color: Colors.red.shade700, width: 1.5),
                 ),
                 focusedErrorBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.red.shade700, width: 1.5),
+                  borderSide:
+                      BorderSide(color: Colors.red.shade700, width: 1.5),
                 ),
                 errorStyle: GoogleFonts.poppins(
                   fontSize: 11,
