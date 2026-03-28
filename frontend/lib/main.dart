@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/chats/chats.dart';
+import 'package:frontend/chats/user_profile.dart';
 import 'package:frontend/users/change_email/change_email.dart';
 import 'package:frontend/users/change_email/verify_otp.dart';
 import 'package:frontend/users/forgot_password/request_otp.dart';
@@ -85,6 +86,8 @@ final GoRouter _router = GoRouter(
 
     // Main
     GoRoute(path: '/chats', builder: (context, state) => const ChatsPage()),
+
+    GoRoute(path: '/user_profile', builder: (context, state) => const UserProfilePage()),
   ],
 );
 

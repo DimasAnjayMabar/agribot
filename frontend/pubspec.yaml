@@ -38,6 +38,10 @@ dependencies:
   google_fonts: ^8.0.2
   dio: ^5.9.2
   flutter_secure_storage: ^9.2.2
+  flutter_markdown: ^0.7.7
+  markdown: ^7.3.1
+  http: ^1.6.0       # mungkin sudah ada
+  url_launcher: ^6.3.2  # mungkin sudah ada
 
 dev_dependencies:
   flutter_test:

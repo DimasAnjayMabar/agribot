@@ -1,25 +1,31 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:frontend/chats/sidebar.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
+import 'package:markdown/markdown.dart' as md;
+import 'package:url_launcher/url_launcher.dart';
 
 // ---------------------------------------------------------------------------
-// API
+// Konfigurasi
 // ---------------------------------------------------------------------------
 
 final _dio = Dio(
   BaseOptions(
     baseUrl: 'http://localhost:8000',
     connectTimeout: const Duration(seconds: 10),
-    receiveTimeout: const Duration(seconds: 10),
+    receiveTimeout: const Duration(seconds: 30),
     headers: {'Content-Type': 'application/json'},
   ),
 );
 
-// Secure Storage — final bukan const agar tidak crash di web
 final _storage = FlutterSecureStorage(
   aOptions: const AndroidOptions(encryptedSharedPreferences: true),
   webOptions: const WebOptions(
@@ -28,73 +34,211 @@ final _storage = FlutterSecureStorage(
   ),
 );
 
-// Interval refresh token — 25 menit agar aman sebelum server expire (30 menit)
-const _kRefreshInterval = Duration(minutes: 25);
+const _kBaseUrl              = 'http://localhost:8000';
+const _kTokenRefreshInterval = Duration(minutes: 25);
 
 // ---------------------------------------------------------------------------
-// Warna & konstanta
+// Models
 // ---------------------------------------------------------------------------
 
-const _bg        = Color(0xFF020202);
-const _neon      = Color(0xFF16DB65);
-const _neonDim   = Color(0x3316DB65);
-const _surface   = Color(0xFF0D0D0D);
-const _surfaceAlt = Color(0xFF111111);
-const _textMuted = Color(0xFFA3A3A3);
-
-// ---------------------------------------------------------------------------
-// Model sederhana
-// ---------------------------------------------------------------------------
-
-class _UserData {
+class ChatTopic {
   final int    id;
-  final String username;
-  final String email;
-  final String name;
-  final bool   isVerified;
-  final bool   isActive;
+  String       title;
+  final String createdAt;
 
-  const _UserData({
-    required this.id,
-    required this.username,
-    required this.email,
-    required this.name,
-    required this.isVerified,
-    required this.isActive,
-  });
+  ChatTopic({required this.id, required this.title, required this.createdAt});
 
-  factory _UserData.fromJson(Map<String, dynamic> json) => _UserData(
-        id        : json['id']          as int,
-        username  : json['username']    as String,
-        email     : json['email']       as String,
-        name      : json['name']        as String,
-        isVerified: json['is_verified'] as bool,
-        isActive  : json['is_active']   as bool,
+  factory ChatTopic.fromJson(Map<String, dynamic> j) => ChatTopic(
+        id       : j['id']         as int,
+        title    : j['title']      as String,
+        createdAt: j['created_at'] as String,
       );
 }
 
-class _SessionItem {
-  final int    sessionId;
-  final String deviceInfo;
+class ChatMessage {
+  final int    id;
+  final int    chatId;
+  final String question;
+  String       response;
+  String       processingStatus;
   final String createdAt;
-  final String accessTokenExpiresAt;
-  final bool   isCurrent;
 
-  const _SessionItem({
-    required this.sessionId,
-    required this.deviceInfo,
+  ChatMessage({
+    required this.id,
+    required this.chatId,
+    required this.question,
+    required this.response,
+    required this.processingStatus,
     required this.createdAt,
-    required this.accessTokenExpiresAt,
-    required this.isCurrent,
   });
 
-  factory _SessionItem.fromJson(Map<String, dynamic> json) => _SessionItem(
-        sessionId           : json['session_id']              as int,
-        deviceInfo          : json['device_info']             as String? ?? 'Unknown Device',
-        createdAt           : json['created_at']              as String,
-        accessTokenExpiresAt: json['access_token_expires_at'] as String,
-        isCurrent           : json['is_current']              as bool,
+  ChatMessage copyWith({
+    String? response,
+    String? processingStatus,
+  }) {
+    return ChatMessage(
+      id: id,
+      chatId: chatId,
+      question: question,
+      response: response ?? this.response,
+      processingStatus: processingStatus ?? this.processingStatus,
+      createdAt: createdAt,
+    );
+  }
+
+  /// Dibuat dari response POST /chat/send — hanya metadata, tanpa response AI.
+  factory ChatMessage.pending({
+    required int    id,
+    required int    chatId,
+    required String question,
+    required String createdAt,
+  }) =>
+      ChatMessage(
+        id              : id,
+        chatId          : chatId,
+        question        : question,
+        response        : '',
+        processingStatus: 'pending',
+        createdAt       : createdAt,
       );
+
+  /// Dibuat dari response GET /chat/message/{id} atau GET /topics/{id} — data lengkap dari DB.
+  factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
+        id              : j['id']                as int,
+        chatId          : j['chat_id']           as int,
+        question        : j['question']          as String,
+        response        : j['response']          as String? ?? '',
+        processingStatus: j['processing_status'] as String? ?? 'pending',
+        createdAt       : j['created_at']        as String,
+      );
+
+  bool get isPending      => processingStatus == 'pending';
+  bool get isDone         => processingStatus == 'done';
+  bool get isFailed       => processingStatus == 'failed';
+  bool get isDisconnected => processingStatus == 'disconnected';
+}
+
+class ChatUserProfile {
+  final String name;
+  final String email;
+  final String username;
+
+  const ChatUserProfile({
+    required this.name,
+    required this.email,
+    required this.username,
+  });
+
+  factory ChatUserProfile.fromJson(Map<String, dynamic> j) => ChatUserProfile(
+        name    : j['name']     as String,
+        email   : j['email']   as String,
+        username: j['username'] as String,
+      );
+}
+
+// ---------------------------------------------------------------------------
+// Greetings
+// ---------------------------------------------------------------------------
+
+const _kGreetings = [
+  'Halo! Ada yang bisa saya bantu hari ini? 🌱',
+  'Selamat datang! Silakan tanyakan seputar pertanian kepada saya.',
+  'Hai! Saya siap membantu menjawab pertanyaan agrikultur Anda.',
+  'Halo, petani hebat! Ada pertanyaan seputar tanaman atau lahan?',
+  'Selamat datang kembali! Apa yang ingin Anda ketahui hari ini?',
+  'Hai! Saya AgriBot — tanyakan apa saja soal pertanian. 🌾',
+  'Halo! Butuh saran soal pupuk, hama, atau panen? Saya siap bantu!',
+];
+
+// ---------------------------------------------------------------------------
+// SSE Client
+// ---------------------------------------------------------------------------
+
+class SseEvent {
+  final String type;
+  final String data;
+  const SseEvent({required this.type, required this.data});
+}
+
+class SseClient {
+  static Stream<SseEvent> subscribe(String url, String token) async* {
+    final client = http.Client();
+    final request = http.Request('GET', Uri.parse(url))
+      ..headers['Accept'] = 'text/event-stream'
+      ..headers['Cache-Control'] = 'no-cache'
+      ..headers['Authorization'] = 'Bearer $token'
+      ..headers['Connection'] = 'keep-alive';
+
+    http.StreamedResponse response;
+    try {
+      response = await client.send(request);
+      print('✅ SSE Connected, status: ${response.statusCode}');
+    } catch (e) {
+      print('❌ SSE Connection failed: $e');
+      throw Exception('SSE connect gagal: $e');
+    }
+
+    if (response.statusCode != 200) {
+      print('❌ SSE HTTP error: ${response.statusCode}');
+      throw Exception('SSE connect gagal: HTTP ${response.statusCode}');
+    }
+
+    String buffer = '';
+    String currentEventType = 'message';
+
+    try {
+      await for (final chunk in response.stream.transform(utf8.decoder)) {
+        buffer += chunk;
+        
+        // Proses per baris
+        final lines = buffer.split('\n');
+        buffer = lines.last;
+        
+        for (var i = 0; i < lines.length - 1; i++) {
+          final line = lines[i].trim();
+          
+          if (line.isEmpty) {
+            // Empty line means end of event
+            continue;
+          }
+          
+          if (line.startsWith('event:')) {
+            currentEventType = line.substring(6).trim();
+            print('📡 SSE Event Type: $currentEventType');
+          } else if (line.startsWith('data:')) {
+            final data = line.substring(5).trim();
+            print('📡 SSE Data: $data');
+            if (data.isNotEmpty) {
+              yield SseEvent(type: currentEventType, data: data);
+              currentEventType = 'message'; // Reset
+            }
+          } else if (line.startsWith(':')) {
+            // Heartbeat comment
+            print('💓 SSE Heartbeat');
+          }
+        }
+      }
+    } finally {
+      client.close();
+      print('🏁 SSE Client closed');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _SseTracker — satu SSE subscription per pesan pending, tanpa polling
+// ---------------------------------------------------------------------------
+
+class _SseTracker {
+  final int                     detailId;
+  StreamSubscription<SseEvent>? sseSub;
+
+  _SseTracker({required this.detailId});
+
+  void cancel() {
+    sseSub?.cancel();
+    sseSub = null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -102,17 +246,7 @@ class _SessionItem {
 // ---------------------------------------------------------------------------
 
 class ChatsPage extends StatefulWidget {
-  /// Token & userId dibaca langsung dari secure storage — tidak perlu dikirim
-  /// lewat constructor. Constructor tetap menerima parameter opsional untuk
-  /// kompatibilitas sementara sebelum semua route diupdate.
-  final String? accessToken;
-  final int?    userId;
-
-  const ChatsPage({
-    super.key,
-    this.accessToken,
-    this.userId,
-  });
+  const ChatsPage({super.key});
 
   @override
   State<ChatsPage> createState() => _ChatsPageState();
@@ -120,130 +254,102 @@ class ChatsPage extends StatefulWidget {
 
 class _ChatsPageState extends State<ChatsPage>
     with SingleTickerProviderStateMixin {
-  // ── Auth state — dibaca dari secure storage saat initState ────────────────
   String? _accessToken;
   int?    _userId;
-  Timer?  _refreshTimer;
+  Timer?  _tokenTimer;
 
-  _UserData?         _user;
-  List<_SessionItem> _sessions      = [];
-  bool               _loadingUser   = true;
-  bool               _loadingLogout = false;
-  String?            _error;
+  bool _sidebarOpen = true;
+  late final AnimationController _sidebarCtrl;
+  late final Animation<double>   _sidebarAnim;
 
-  late final AnimationController _fadeController;
-  late final Animation<double>   _fadeAnimation;
+  List<ChatTopic>  _topics        = [];
+  ChatUserProfile? _profile;
+  bool             _loadingTopics = true;
+
+  int?              _activeChatId;
+  List<ChatMessage> _messages        = [];
+  bool              _loadingMessages = false;
+
+  bool    _sending         = false;
+  String? _pendingQuestion;
+
+  final Map<int, _SseTracker> _trackers = {};
+
+  int?    _renamingId;
+  String? _renamingTemp;
+  String? _greeting;
+
+  final _inputCtrl  = TextEditingController();
+  final _scrollCtrl = ScrollController();
+  final _inputFocus = FocusNode();
 
   @override
   void initState() {
     super.initState();
-    _fadeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    );
-    _fadeAnimation = CurvedAnimation(
-      parent: _fadeController,
-      curve: Curves.easeOut,
-    );
+    _sidebarCtrl = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 250), value: 1.0);
+    _sidebarAnim = CurvedAnimation(
+      parent: _sidebarCtrl, curve: Curves.easeInOut);
     _initAuth();
   }
 
-  /// Baca access token & userId dari secure storage, lalu mulai sesi.
+  @override
+  void dispose() {
+    _tokenTimer?.cancel();
+    for (final t in _trackers.values) t.cancel();
+    _trackers.clear();
+    _sidebarCtrl.dispose();
+    _inputCtrl.dispose();
+    _scrollCtrl.dispose();
+    _inputFocus.dispose();
+    super.dispose();
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+
   Future<void> _initAuth() async {
     try {
-      // Baca sequential — IndexedDB web tidak support concurrent reads
-      final storedToken  = await _storage.read(key: 'access_token');
-      final storedUserId = await _storage.read(key: 'user_id');
-
-      _accessToken = storedToken  ?? widget.accessToken;
-      _userId      = (storedUserId != null)
-          ? int.tryParse(storedUserId)
-          : widget.userId;
-    } catch (_) {
-      // Storage error — fallback ke constructor params
-      _accessToken = widget.accessToken;
-      _userId      = widget.userId;
-    }
+      _accessToken = await _storage.read(key: 'access_token');
+      final uid    = await _storage.read(key: 'user_id');
+      _userId      = uid != null ? int.tryParse(uid) : null;
+    } catch (_) {}
 
     if (_accessToken == null || _accessToken!.isEmpty || _userId == null) {
       if (mounted) context.go('/users/login');
       return;
     }
-
-    _startRefreshTimer();
-    _fetchData();
+    _startTokenTimer();
+    await Future.wait([_fetchTopics(), _fetchProfile()]);
+    _pickGreeting();
   }
 
-  @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    _fadeController.dispose();
-    super.dispose();
+  void _startTokenTimer() {
+    _tokenTimer?.cancel();
+    _tokenTimer = Timer.periodic(_kTokenRefreshInterval, (_) => _silentRefresh());
   }
 
-  // ── Background token refresh ───────────────────────────────────────────────
-
-  /// Jalankan timer periodik setiap [_kRefreshInterval].
-  /// Dipanggil sekali saat _initAuth selesai.
-  void _startRefreshTimer() {
-    _refreshTimer?.cancel();
-    _refreshTimer = Timer.periodic(_kRefreshInterval, (_) => _silentRefresh());
-  }
-
-  /// Hit POST /users/refresh-token secara silent.
-  /// - Jika berhasil: tulis access_token & refresh_token baru ke storage
-  ///   dan update _accessToken di state.
-  /// - Jika 401/gagal: token sudah tidak bisa diselamatkan → paksa login ulang.
   Future<void> _silentRefresh() async {
-    final currentRefresh = await _storage.read(key: 'refresh_token');
-    if (currentRefresh == null || currentRefresh.isEmpty) {
-      _forceLogout();
-      return;
-    }
-
+    final rt = await _storage.read(key: 'refresh_token');
+    if (rt == null || rt.isEmpty) { _forceLogout(); return; }
     try {
-      final response = await _dio.post(
-        '/users/refresh-token',
-        data: {'refresh_token': currentRefresh},
-      );
-
-      if (response.statusCode == 200) {
-        final data        = response.data['data'] as Map<String, dynamic>;
-        final newAccess   = data['access_token']  as String;
-        final newRefresh  = data['refresh_token'] as String;
-
-        // Tulis token baru ke storage
+      final res = await _dio.post('/users/refresh-token', data: {'refresh_token': rt});
+      if (res.statusCode == 200) {
+        final d = res.data['data'] as Map<String, dynamic>;
         await Future.wait([
-          _storage.write(key: 'access_token',  value: newAccess),
-          _storage.write(key: 'refresh_token', value: newRefresh),
+          _storage.write(key: 'access_token',  value: d['access_token']  as String),
+          _storage.write(key: 'refresh_token', value: d['refresh_token'] as String),
         ]);
-
-        // Update created_at session jika server mengembalikannya
-        if (data['created_at'] != null) {
-          await _storage.write(
-            key: 'session_created_at',
-            value: data['created_at'] as String,
-          );
-        }
-
-        // Update state — request berikutnya langsung pakai token baru
-        if (mounted) setState(() => _accessToken = newAccess);
+        if (mounted) setState(() => _accessToken = d['access_token'] as String);
       }
     } on DioException catch (e) {
-      final statusCode = e.response?.statusCode;
-      if (statusCode == 401 || statusCode == 403) {
-        // Refresh token expired / tidak valid → session sudah mati
-        _forceLogout();
-      }
-      // Error jaringan sementara — biarkan, timer akan coba lagi nanti
-    } catch (_) {
-      // Abaikan error tak terduga, jangan paksa logout
-    }
+      if (e.response?.statusCode == 401 || e.response?.statusCode == 403) _forceLogout();
+    } catch (_) {}
   }
 
-  /// Hapus semua token dari storage dan redirect ke login.
   Future<void> _forceLogout() async {
-    _refreshTimer?.cancel();
+    _tokenTimer?.cancel();
+    for (final t in _trackers.values) t.cancel();
+    _trackers.clear();
     await Future.wait([
       _storage.delete(key: 'access_token'),
       _storage.delete(key: 'refresh_token'),
@@ -253,262 +359,326 @@ class _ChatsPageState extends State<ChatsPage>
     if (mounted) context.go('/users/login');
   }
 
-  Map<String, String> get _authHeaders => {
-        'Authorization': 'Bearer ${_accessToken ?? ''}',
-      };
+  Map<String, dynamic> get _authHeader => {'Authorization': 'Bearer $_accessToken'};
 
-  // ── Fetch user + sessions sekaligus ───────────────────────────────────────
+  // ── SSE Tracker ───────────────────────────────────────────────────────────
+  void _startTracking(int detailId) {
+    print('🔍 Starting SSE tracking for detail_id: $detailId');
+    _trackers[detailId]?.cancel();
+    final tracker = _SseTracker(detailId: detailId);
+    _trackers[detailId] = tracker;
 
-  Future<void> _fetchData() async {
-    setState(() {
-      _loadingUser = true;
-      _error       = null;
-    });
+    final url = '$_kBaseUrl/chat/stream/$detailId';
+    final token = _accessToken ?? '';
+    print('🌐 SSE URL: $url');
 
-    try {
-      final results = await Future.wait([
-        _dio.get(
-          '/users/$_userId',
-          options: Options(headers: _authHeaders),
-        ),
-        _dio.get(
-          '/users/sessions',
-          options: Options(headers: _authHeaders),
-        ),
-      ]);
-
-      final userData     = results[0].data['data'] as Map<String, dynamic>;
-      final sessionData  = results[1].data['data'] as Map<String, dynamic>;
-      final sessionsList = sessionData['sessions'] as List<dynamic>;
-
-      setState(() {
-        _user     = _UserData.fromJson(userData);
-        _sessions = sessionsList
-            .map((s) => _SessionItem.fromJson(s as Map<String, dynamic>))
-            .toList();
-        _loadingUser = false;
-      });
-
-      _fadeController.forward(from: 0);
-    } on DioException catch (e) {
-      String msg = 'Gagal memuat data.';
-      if (e.response?.data['detail'] != null) {
-        msg = e.response!.data['detail'].toString();
-      }
-      setState(() {
-        _error       = msg;
-        _loadingUser = false;
-      });
-    } catch (_) {
-      setState(() {
-        _error       = 'Terjadi kesalahan tidak terduga.';
-        _loadingUser = false;
-      });
-    }
-  }
-
-  // ── Logout device ini ─────────────────────────────────────────────────────
-
-  Future<void> _handleLogout() async {
-    final confirmed = await _showConfirmDialog(
-      title   : 'Keluar',
-      message : 'Yakin ingin keluar dari akun ini?',
-      confirm : 'Keluar',
+    tracker.sseSub = SseClient.subscribe(url, token).listen(
+      (event) async {
+        print('📨 SSE event received: ${event.type} for detail_id $detailId');
+        print('📦 Event data: ${event.data}');
+        
+        if (!mounted) {
+          print('⚠️ Widget not mounted, ignoring event');
+          return;
+        }
+        
+        if (event.type == 'done' || event.type == 'error') {
+          print('🔄 Fetching message from API for detail_id: $detailId');
+          await _fetchAndApplyMessage(detailId);
+          _stopTracking(detailId);
+        } else if (event.type == 'waiting') {
+          print('⏳ Waiting for response...');
+        } else if (event.type == 'timeout') {
+          print('⏰ Timeout received for detail_id: $detailId');
+          _markDisconnected(detailId);
+          _stopTracking(detailId);
+        }
+      },
+      onError: (error) {
+        print('❌ SSE error for $detailId: $error');
+        if (mounted) {
+          _markDisconnected(detailId);
+        }
+        _stopTracking(detailId);
+      },
+      onDone: () {
+        print('🏁 SSE connection closed for $detailId');
+        if (mounted) {
+          final msg = _messages.firstWhere(
+            (m) => m.id == detailId,
+            orElse: () => ChatMessage(
+              id: detailId, chatId: 0, question: '',
+              response: '', processingStatus: 'pending', createdAt: ''),
+          );
+          if (msg.isPending) {
+            print('⚠️ SSE closed but message still pending, marking as disconnected');
+            _markDisconnected(detailId);
+          }
+        }
+        _stopTracking(detailId);
+      },
+      cancelOnError: true,
     );
-    if (!confirmed || !mounted) return;
 
-    setState(() => _loadingLogout = true);
-
-    try {
-      await _dio.post(
-        '/users/logout',
-        options: Options(headers: _authHeaders),
-      );
-
-      // Hapus semua token dari storage
-      await Future.wait([
-        _storage.delete(key: 'access_token'),
-        _storage.delete(key: 'refresh_token'),
-        _storage.delete(key: 'user_id'),
-        _storage.delete(key: 'session_created_at'),
-      ]);
-
-      if (mounted) context.go('/users/login');
-    } on DioException catch (e) {
-      if (!mounted) return;
-      String msg = 'Gagal logout.';
-      if (e.response?.data['detail'] != null) {
-        msg = e.response!.data['detail'].toString();
+    Future.delayed(const Duration(seconds: 30), () {
+      if (mounted && _trackers.containsKey(detailId)) {
+        print('⏰ Fallback timeout triggered for detail_id: $detailId');
+        final msg = _messages.firstWhere(
+          (m) => m.id == detailId,
+          orElse: () => ChatMessage(
+            id: detailId, chatId: 0, question: '',
+            response: '', processingStatus: 'pending', createdAt: ''),
+        );
+        if (msg.isPending) {
+          _fetchAndApplyMessage(detailId);
+        }
       }
-      _showErrorSnackbar(msg);
-    } finally {
-      if (mounted) setState(() => _loadingLogout = false);
+    });
+  }
+
+  Future<void> _fetchAndApplyMessage(int detailId) async {
+    if (!mounted) return;
+    print('📥 Fetching message $detailId from API');
+    try {
+      final res = await _dio.get(
+        '/chat/message/$detailId',
+        options: Options(headers: _authHeader),
+      );
+      
+      final jsonData = res.data['data'] as Map<String, dynamic>;
+      final updated = ChatMessage.fromJson(jsonData);
+      print('✅ Message fetched: id=${updated.id}, status=${updated.processingStatus}, response_length=${updated.response.length}');
+      
+      _applyMessageUpdate(updated);
+    } catch (e) {
+      print('❌ Error fetching message: $e');
+      _markDisconnected(detailId);
     }
   }
 
-  // ── Logout other devices ──────────────────────────────────────────────────
-
-  Future<void> _handleLogoutOtherDevices() async {
-    final otherCount = _sessions.where((s) => !s.isCurrent).length;
-    if (otherCount == 0) {
-      _showInfoSnackbar('Tidak ada device lain yang aktif.');
+  void _applyMessageUpdate(ChatMessage updated) {
+    if (!mounted) return;
+    print('🔄 Applying update for message ${updated.id}');
+    
+    final idx = _messages.indexWhere((m) => m.id == updated.id);
+    if (idx == -1) {
+      print('⚠️ Message ${updated.id} not found in _messages list');
+      print('Current messages: ${_messages.map((m) => m.id).toList()}');
       return;
     }
+    
+    print('📝 Updating message at index $idx');
+    setState(() {
+      _messages[idx] = updated;
+    });
+    
+    _scrollToBottom();
+    print('✨ UI updated for message ${updated.id}');
+  }
 
-    final confirmed = await _showConfirmDialog(
-      title  : 'Logout Device Lain',
-      message: 'Logout dari $otherCount device lain yang sedang aktif?',
-      confirm: 'Logout Semua',
-    );
-    if (!confirmed || !mounted) return;
-
-    try {
-      await _dio.post(
-        '/users/logout/other-devices',
-        options: Options(headers: _authHeaders),
-      );
-      if (mounted) {
-        _showSuccessSnackbar('Berhasil logout dari $otherCount device lain.');
-        _fetchData();
-      }
-    } on DioException catch (e) {
-      if (!mounted) return;
-      String msg = 'Gagal logout device lain.';
-      if (e.response?.data['detail'] != null) {
-        msg = e.response!.data['detail'].toString();
-      }
-      _showErrorSnackbar(msg);
+  void _markDisconnected(int detailId) {
+    if (!mounted) return;
+    print('⚠️ Marking message $detailId as disconnected');
+    final idx = _messages.indexWhere((m) => m.id == detailId);
+    if (idx != -1) {
+      setState(() {
+        _messages[idx].processingStatus = 'disconnected';
+      });
     }
   }
 
-  // ── Dialog konfirmasi ─────────────────────────────────────────────────────
-
-  Future<bool> _showConfirmDialog({
-    required String title,
-    required String message,
-    required String confirm,
-  }) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: _surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: Color(0xFF1F1F1F)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                message,
-                style: GoogleFonts.poppins(
-                  fontSize: 13,
-                  color: _textMuted,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(ctx).pop(false),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFF2A2A2A)),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      child: Text(
-                        'Batal',
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          color: _textMuted,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.of(ctx).pop(true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF4D4D),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      child: Text(
-                        confirm,
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    return result ?? false;
+  void _stopTracking(int detailId) {
+    _trackers[detailId]?.cancel();
+    _trackers.remove(detailId);
   }
 
-  // ── Snackbars ─────────────────────────────────────────────────────────────
-
-  void _showErrorSnackbar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      _buildSnackbar(message, const Color(0xFFFF4D4D)),
-    );
+  void _cancelAllTrackers() {
+    for (final t in _trackers.values) t.cancel();
+    _trackers.clear();
   }
 
-  void _showSuccessSnackbar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      _buildSnackbar(message, _neon),
-    );
+  // ── Fetch ─────────────────────────────────────────────────────────────────
+
+  Future<void> _fetchTopics() async {
+    try {
+      final res  = await _dio.get('/topics', options: Options(headers: _authHeader));
+      final data = res.data['data'] as Map<String, dynamic>;
+      final list = (data['topics'] as List)
+          .map((e) => ChatTopic.fromJson(e as Map<String, dynamic>))
+          .toList();
+      if (mounted) setState(() { _topics = list; _loadingTopics = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loadingTopics = false);
+    }
   }
 
-  void _showInfoSnackbar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      _buildSnackbar(message, const Color(0xFF2A2A2A)),
-    );
+  Future<void> _fetchProfile() async {
+    if (_userId == null) return;
+    try {
+      final res  = await _dio.get('/users/$_userId', options: Options(headers: _authHeader));
+      final data = res.data['data'] as Map<String, dynamic>;
+      if (mounted) setState(() => _profile = ChatUserProfile.fromJson(data));
+    } catch (_) {}
   }
 
-  SnackBar _buildSnackbar(String message, Color borderColor) {
-    return SnackBar(
-      content: Text(
-        message,
-        style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
-      ),
-      backgroundColor: const Color(0xFF1A1A1A),
-      behavior: SnackBarBehavior.floating,
-      margin: const EdgeInsets.all(16),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: borderColor, width: 1),
-      ),
-    );
+  Future<void> _fetchMessages(int chatId) async {
+    setState(() { _loadingMessages = true; _messages = []; });
+    try {
+      final res  = await _dio.get('/topics/$chatId', options: Options(headers: _authHeader));
+      final data = res.data['data'] as Map<String, dynamic>;
+      // GET /topics/{id} return history lengkap — response AI sudah ada di DB
+      final msgs = (data['messages'] as List)
+          .map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
+          .toList();
+      if (mounted) {
+        setState(() { _messages = msgs; _loadingMessages = false; });
+        _scrollToBottom();
+        // Recovery: pesan pending dari sesi sebelumnya → buka SSE ulang
+        for (final msg in msgs.where((m) => m.isPending)) {
+          _startTracking(msg.id);
+        }
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingMessages = false);
+    }
+  }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+
+  void _pickGreeting() {
+    setState(() => _greeting = _kGreetings[Random().nextInt(_kGreetings.length)]);
+  }
+
+  void _newChat() {
+    _cancelAllTrackers();
+    _pickGreeting();
+    setState(() { _activeChatId = null; _messages = []; _pendingQuestion = null; });
+  }
+
+  void _selectTopic(ChatTopic topic) {
+    _cancelAllTrackers();
+    setState(() { _activeChatId = topic.id; _greeting = null; _pendingQuestion = null; });
+    _fetchMessages(topic.id);
+    if (MediaQuery.of(context).size.width < 768) _toggleSidebar();
+  }
+
+  Future<void> _sendMessage({String? overrideText, int? replaceDetailId}) async {
+    final text = overrideText ?? _inputCtrl.text.trim();
+    if (text.isEmpty || _sending) return;
+
+    if (overrideText == null) _inputCtrl.clear();
+    setState(() {
+      _sending         = true;
+      _pendingQuestion = replaceDetailId == null ? text : null;
+    });
+    _scrollToBottom();
+
+    try {
+      final res  = await _dio.post(
+        '/chat/send',
+        data   : {'chat_id': _activeChatId, 'question': text},
+        options: Options(headers: _authHeader),
+      );
+
+      // POST /chat/send hanya return metadata (id, chat_id, question, status).
+      // Jawaban AI TIDAK ada di sini — akan datang via SSE sinyal → GET /chat/message/{id}.
+      final data = res.data['data'] as Map<String, dynamic>;
+      final msg  = ChatMessage.pending(
+        id       : data['id']         as int,
+        chatId   : data['chat_id']    as int,
+        question : data['question']   as String,
+        createdAt: data['created_at'] as String,
+      );
+
+      if (_activeChatId == null) {
+        setState(() {
+          _activeChatId = msg.chatId;
+          _greeting     = null;
+          _pendingQuestion = null;
+          _messages.add(msg);
+          _sending = false;
+        });
+        await _fetchTopics();
+      } else if (replaceDetailId != null) {
+        final idx = _messages.indexWhere((m) => m.id == replaceDetailId);
+        setState(() {
+          _pendingQuestion = null;
+          if (idx != -1) _messages[idx] = msg; else _messages.add(msg);
+        });
+      } else {
+        setState(() { _pendingQuestion = null; _messages.add(msg); });
+      }
+
+      _scrollToBottom();
+      _startTracking(msg.id); // SSE → sinyal → GET /chat/message/{id}
+
+    } catch (_) {
+      setState(() => _pendingQuestion = null);
+      _showSnack('Gagal mengirim pesan. Coba lagi.');
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _resendMessage(ChatMessage msg) async {
+    await _sendMessage(overrideText: msg.question, replaceDetailId: msg.id);
+  }
+
+  Future<void> _deleteTopic(ChatTopic topic) async {
+    try {
+      await _dio.delete('/topics/${topic.id}', options: Options(headers: _authHeader));
+      _cancelAllTrackers();
+      setState(() {
+        _topics.removeWhere((t) => t.id == topic.id);
+        if (_activeChatId == topic.id) {
+          _activeChatId = null; _messages = []; _pendingQuestion = null;
+          _pickGreeting();
+        }
+      });
+    } catch (_) { _showSnack('Gagal menghapus topik.'); }
+  }
+
+  Future<void> _renameTopic(ChatTopic topic, String newTitle) async {
+    final trimmed = newTitle.trim();
+    if (trimmed.isEmpty) return;
+    try {
+      await _dio.patch('/topics/${topic.id}',
+          data: {'title': trimmed}, options: Options(headers: _authHeader));
+      setState(() { topic.title = trimmed; _renamingId = null; });
+    } catch (_) { _showSnack('Gagal mengganti judul.'); }
+  }
+
+  Future<void> _logout() async {
+    _cancelAllTrackers();
+    try { await _dio.post('/users/logout', options: Options(headers: _authHeader)); } catch (_) {}
+    await _forceLogout();
+  }
+
+  void _toggleSidebar() {
+    setState(() => _sidebarOpen = !_sidebarOpen);
+    _sidebarOpen ? _sidebarCtrl.forward() : _sidebarCtrl.reverse();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollCtrl.hasClients) {
+        _scrollCtrl.animateTo(
+          _scrollCtrl.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve   : Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content        : Text(msg, style: GoogleFonts.poppins(fontSize: 13)),
+      backgroundColor: const Color(0xFF111111),
+      behavior       : SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ));
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -516,201 +686,49 @@ class _ChatsPageState extends State<ChatsPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bg,
-      body: SafeArea(
-        child: _loadingUser
-            ? const Center(
-                child: CircularProgressIndicator(color: _neon, strokeWidth: 2),
-              )
-            : _error != null
-                ? _ErrorView(error: _error!, onRetry: _fetchData)
-                : FadeTransition(
-                    opacity: _fadeAnimation,
-                    child: CustomScrollView(
-                      slivers: [
-                        _buildAppBar(),
-                        SliverPadding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 8),
-                          sliver: SliverList(
-                            delegate: SliverChildListDelegate([
-                              _ProfileCard(user: _user!),
-                              const SizedBox(height: 24),
-                              _CredentialCard(
-                                user: _user!,
-                                onChangeEmail: () => context.push(
-                                  '/users/change-email/otp/verify-otp?email=${Uri.encodeComponent(_user!.email)}',
-                                ).then((_) => _fetchData()),
-                              ),
-                              const SizedBox(height: 24),
-                              _SessionsCard(
-                                sessions: _sessions,
-                                onLogoutOtherDevices: _handleLogoutOtherDevices,
-                              ),
-                              const SizedBox(height: 32),
-                              _LogoutButton(
-                                isLoading: _loadingLogout,
-                                onPressed: _handleLogout,
-                              ),
-                              const SizedBox(height: 32),
-                            ]),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-      ),
-    );
-  }
-
-  Widget _buildAppBar() {
-    return SliverAppBar(
-      backgroundColor: _bg,
-      pinned: true,
-      elevation: 0,
-      automaticallyImplyLeading: false,
-      title: Row(
+      backgroundColor: const Color(0xFF020202),
+      body: Row(
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: _neonDim,
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                BoxShadow(
-                  color: _neon.withOpacity(0.3),
-                  blurRadius: 14,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text('🌿', style: TextStyle(fontSize: 18)),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            'AgriBot',
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-              letterSpacing: -0.3,
+          SizeTransition(
+            sizeFactor: _sidebarAnim,
+            axis      : Axis.horizontal,
+            child: ChatSidebar(
+              topics         : _topics,
+              loading        : _loadingTopics,
+              activeChatId   : _activeChatId,
+              profile        : _profile,
+              renamingId     : _renamingId,
+              renamingTemp   : _renamingTemp,
+              onNewChat      : _newChat,
+              onSelectTopic  : _selectTopic,
+              onDeleteTopic  : _deleteTopic,
+              onStartRename  : (t) => setState(() { _renamingId = t.id; _renamingTemp = t.title; }),
+              onConfirmRename: (t, v) => _renameTopic(t, v),
+              onCancelRename : () => setState(() => _renamingId = null),
+              onRenameChange : (v) => setState(() => _renamingTemp = v),
+              onProfileTap   : () => context.go('/user_profile'),
+              onLogout       : _logout,
             ),
           ),
-        ],
-      ),
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(1),
-        child: Container(
-          height: 1,
-          color: const Color(0xFF111111),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Profile Card — avatar inisial + nama + username
-// ---------------------------------------------------------------------------
-
-class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({required this.user});
-  final _UserData user;
-
-  String get _initials {
-    final parts = user.name.trim().split(' ');
-    if (parts.length >= 2) {
-      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    }
-    return parts[0].substring(0, parts[0].length.clamp(0, 2)).toUpperCase();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: _surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF1A1A1A)),
-        boxShadow: [
-          BoxShadow(
-            color: _neon.withOpacity(0.06),
-            blurRadius: 24,
-            spreadRadius: 0,
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // Avatar inisial dengan neon glow
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: _neonDim,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: _neon.withOpacity(0.3),
-                  blurRadius: 18,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: Center(
-              child: Text(
-                _initials,
-                style: GoogleFonts.poppins(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: _neon,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  user.name,
-                  style: GoogleFonts.poppins(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: -0.2,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                _ChatTopBar(
+                  sidebarOpen    : _sidebarOpen,
+                  onToggleSidebar: _toggleSidebar,
+                  title: _activeChatId != null
+                      ? _topics.firstWhere(
+                          (t) => t.id == _activeChatId,
+                          orElse: () => ChatTopic(id: 0, title: 'Chat', createdAt: '')).title
+                      : 'Chat Baru',
+                  hasPending: _trackers.isNotEmpty,
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  '@${user.username}',
-                  style: GoogleFonts.poppins(
-                    fontSize: 13,
-                    color: _neon,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                // Badge status
-                Row(
-                  children: [
-                    _StatusBadge(
-                      label: user.isVerified ? 'Terverifikasi' : 'Belum Verifikasi',
-                      color: user.isVerified ? _neon : const Color(0xFFFFB800),
-                    ),
-                    const SizedBox(width: 8),
-                    _StatusBadge(
-                      label: user.isActive ? 'Aktif' : 'Nonaktif',
-                      color: user.isActive ? _neon : const Color(0xFFFF4D4D),
-                    ),
-                  ],
+                Expanded(child: _buildBody()),
+                _InputBar(
+                  controller: _inputCtrl,
+                  focusNode : _inputFocus,
+                  sending   : _sending,
+                  onSend    : _sendMessage,
                 ),
               ],
             ),
@@ -719,493 +737,508 @@ class _ProfileCard extends StatelessWidget {
       ),
     );
   }
-}
 
-class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.label, required this.color});
-  final String label;
-  final Color  color;
+  Widget _buildBody() {
+    if (_loadingMessages) {
+      return const Center(child: CircularProgressIndicator(color: Color(0xFF16DB65), strokeWidth: 2));
+    }
+    if (_activeChatId == null && _messages.isEmpty && _pendingQuestion == null) {
+      return _GreetingView(greeting: _greeting ?? _kGreetings[0]);
+    }
+    if (_messages.isEmpty && _pendingQuestion == null) {
+      return const _GreetingView(greeting: 'Topik ini masih kosong. Mulai percakapan! 💬');
+    }
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.35), width: 1),
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.poppins(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: color,
-          letterSpacing: 0.2,
-        ),
-      ),
+    final itemCount = _messages.length + (_pendingQuestion != null ? 1 : 0);
+    return ListView.builder(
+      controller: _scrollCtrl,
+      padding   : const EdgeInsets.fromLTRB(24, 24, 24, 8),
+      itemCount : itemCount,
+      itemBuilder: (_, i) {
+        if (_pendingQuestion != null && i == _messages.length) {
+          return _PendingBubble(question: _pendingQuestion!);
+        }
+        final msg = _messages[i];
+        if (msg.isPending)      return _PendingBubble(question: msg.question);
+        if (msg.isDisconnected) return _DisconnectedBubble(message: msg, onResend: () => _resendMessage(msg));
+        return _MessagePair(message: msg);
+      },
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Credential Card — email & ID
+// Chat Top Bar
 // ---------------------------------------------------------------------------
 
-class _CredentialCard extends StatelessWidget {
-  const _CredentialCard({required this.user, this.onChangeEmail});
-  final _UserData    user;
-  final VoidCallback? onChangeEmail;
-
-  @override
-  Widget build(BuildContext context) {
-    return _SectionCard(
-      title: 'Informasi Akun',
-      icon: Icons.badge_outlined,
-      children: [
-        // Email row + anchor ganti email
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Row(
-            children: [
-              const Icon(Icons.mail_outline_rounded, size: 16, color: _textMuted),
-              const SizedBox(width: 10),
-              Text(
-                'Email',
-                style: GoogleFonts.poppins(
-                  fontSize: 12,
-                  color: _textMuted,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const Spacer(),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    user.email,
-                    style: GoogleFonts.poppins(
-                      fontSize: 13,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  GestureDetector(
-                    onTap: onChangeEmail,
-                    child: Text(
-                      'Ganti Email',
-                      style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        color: _neon,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        _Divider(),
-        _InfoRow(
-          icon : Icons.tag_rounded,
-          label: 'User ID',
-          value: '#${user.id}',
-          valueColor: _textMuted,
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Sessions Card
-// ---------------------------------------------------------------------------
-
-class _SessionsCard extends StatelessWidget {
-  const _SessionsCard({
-    required this.sessions,
-    required this.onLogoutOtherDevices,
+class _ChatTopBar extends StatelessWidget {
+  const _ChatTopBar({
+    required this.sidebarOpen,
+    required this.onToggleSidebar,
+    required this.title,
+    required this.hasPending,
   });
 
-  final List<_SessionItem> sessions;
-  final VoidCallback       onLogoutOtherDevices;
+  final bool sidebarOpen; final VoidCallback onToggleSidebar;
+  final String title; final bool hasPending;
 
   @override
   Widget build(BuildContext context) {
-    final otherCount = sessions.where((s) => !s.isCurrent).length;
-
-    return _SectionCard(
-      title: 'Sesi Aktif',
-      icon: Icons.devices_rounded,
-      trailing: otherCount > 0
-          ? GestureDetector(
-              onTap: onLogoutOtherDevices,
-              child: Text(
-                'Logout device lain',
-                style: GoogleFonts.poppins(
-                  fontSize: 11,
-                  color: const Color(0xFFFF4D4D),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            )
-          : null,
-      children: sessions.isEmpty
-          ? [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  'Tidak ada sesi aktif.',
-                  style: GoogleFonts.poppins(
-                    fontSize: 13,
-                    color: _textMuted,
-                  ),
-                ),
-              ),
-            ]
-          : [
-              for (int i = 0; i < sessions.length; i++) ...[
-                _SessionTile(session: sessions[i]),
-                if (i < sessions.length - 1) _Divider(),
-              ],
-            ],
-    );
-  }
-}
-
-class _SessionTile extends StatelessWidget {
-  const _SessionTile({required this.session});
-  final _SessionItem session;
-
-  String _formatDate(String iso) {
-    try {
-      // Server menyimpan created_at dalam UTC tanpa suffix 'Z'.
-      // Tambahkan 'Z' agar DateTime.parse tahu ini UTC, baru konversi ke local.
-      final normalized = iso.endsWith('Z') ? iso : '${iso}Z';
-      final dt  = DateTime.parse(normalized).toLocal();
-      final now = DateTime.now();
-      final diff = now.difference(dt);
-      if (diff.inMinutes < 1)  return 'Baru saja';
-      if (diff.inHours < 1)    return '${diff.inMinutes} menit lalu';
-      if (diff.inDays < 1)     return '${diff.inHours} jam lalu';
-      if (diff.inDays < 7)     return '${diff.inDays} hari lalu';
-      return '${dt.day}/${dt.month}/${dt.year}';
-    } catch (_) {
-      return iso;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: session.isCurrent ? _neonDim : const Color(0xFF1A1A1A),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              Icons.smartphone_rounded,
-              size: 18,
-              color: session.isCurrent ? _neon : _textMuted,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        session.deviceInfo,
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (session.isCurrent)
-                      Container(
-                        margin: const EdgeInsets.only(left: 8),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: _neonDim,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          'Device ini',
-                          style: GoogleFonts.poppins(
-                            fontSize: 9,
-                            color: _neon,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  'Login ${_formatDate(session.createdAt)}',
-                  style: GoogleFonts.poppins(
-                    fontSize: 11,
-                    color: _textMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+    return Container(
+      height  : 56,
+      padding : const EdgeInsets.symmetric(horizontal: 12),
+      decoration: const BoxDecoration(
+        color : Color(0xFF0D0D0D),
+        border: Border(bottom: BorderSide(color: Color(0xFF1A1A1A))),
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Logout Button
-// ---------------------------------------------------------------------------
-
-class _LogoutButton extends StatelessWidget {
-  const _LogoutButton({required this.isLoading, required this.onPressed});
-  final bool         isLoading;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: OutlinedButton(
-        onPressed: isLoading ? null : onPressed,
-        style: OutlinedButton.styleFrom(
-          side: const BorderSide(color: Color(0xFFFF4D4D), width: 1.5),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          backgroundColor: const Color(0xFFFF4D4D).withOpacity(0.06),
-        ),
-        child: isLoading
-            ? const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: Color(0xFFFF4D4D),
+      child: Row(
+        children: [
+          Tooltip(
+            message: sidebarOpen ? 'Sembunyikan Sidebar' : 'Tampilkan Sidebar',
+            child: InkWell(
+              onTap: onToggleSidebar,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border      : Border.all(color: const Color(0xFF1A1A1A)),
                 ),
-              )
-            : Row(
+                child: Icon(
+                  sidebarOpen ? Icons.menu_open_rounded : Icons.menu_rounded,
+                  size: 18, color: const Color(0xFFA3A3A3),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(title,
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white)),
+          ),
+          if (hasPending) ...[
+            const SizedBox(width: 8),
+            Tooltip(
+              message: 'Menunggu respons AI (pipeline aktif)...',
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
-                    Icons.logout_rounded,
-                    size: 18,
-                    color: Color(0xFFFF4D4D),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Keluar',
-                    style: GoogleFonts.poppins(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFFFF4D4D),
-                      letterSpacing: 0.2,
-                    ),
-                  ),
+                  _PulsingDot(),
+                  const SizedBox(width: 5),
+                  Text('Memproses', style: GoogleFonts.poppins(
+                      fontSize: 11, color: const Color(0xFF16DB65), fontWeight: FontWeight.w500)),
                 ],
               ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Reusable section card
-// ---------------------------------------------------------------------------
-
-class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.title,
-    required this.icon,
-    required this.children,
-    this.trailing,
-  });
-
-  final String       title;
-  final IconData     icon;
-  final List<Widget> children;
-  final Widget?      trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: _surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF1A1A1A)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: Row(
-              children: [
-                Icon(icon, size: 15, color: _neon),
-                const SizedBox(width: 7),
-                Text(
-                  title,
-                  style: GoogleFonts.poppins(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: _neon,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-                if (trailing != null) ...[
-                  const Spacer(),
-                  trailing!,
-                ],
-              ],
             ),
-          ),
-          const SizedBox(height: 4),
-          // Divider tipis
-          Container(height: 1, color: const Color(0xFF161616)),
-          // Content
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: children,
-            ),
-          ),
+          ],
         ],
       ),
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// Info row
-// ---------------------------------------------------------------------------
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
-
-  final IconData icon;
-  final String   label;
-  final String   value;
-  final Color?   valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: _textMuted),
-          const SizedBox(width: 10),
-          Text(
-            label,
-            style: GoogleFonts.poppins(
-              fontSize: 12,
-              color: _textMuted,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const Spacer(),
-          Text(
-            value,
-            style: GoogleFonts.poppins(
-              fontSize: 13,
-              color: valueColor ?? Colors.white,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
+class _PulsingDot extends StatefulWidget {
+  @override State<_PulsingDot> createState() => _PulsingDotState();
+}
+class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  @override void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 800))..repeat(reverse: true);
   }
+  @override void dispose() { _ctrl.dispose(); super.dispose(); }
+  @override Widget build(BuildContext context) => FadeTransition(
+    opacity: _ctrl,
+    child: Container(width: 7, height: 7,
+      decoration: const BoxDecoration(color: Color(0xFF16DB65), shape: BoxShape.circle)),
+  );
 }
 
 // ---------------------------------------------------------------------------
-// Divider tipis
+// Greeting View
 // ---------------------------------------------------------------------------
 
-class _Divider extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) =>
-      Container(height: 1, color: const Color(0xFF161616));
-}
-
-// ---------------------------------------------------------------------------
-// Error view
-// ---------------------------------------------------------------------------
-
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.error, required this.onRetry});
-  final String   error;
-  final VoidCallback onRetry;
-
+class _GreetingView extends StatelessWidget {
+  const _GreetingView({required this.greeting});
+  final String greeting;
   @override
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.symmetric(horizontal: 40),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.wifi_off_rounded, color: _textMuted, size: 48),
-            const SizedBox(height: 16),
-            Text(
-              error,
-              style: GoogleFonts.poppins(
-                fontSize: 13,
-                color: _textMuted,
-                height: 1.5,
+            Container(
+              width: 64, height: 64,
+              decoration: BoxDecoration(
+                color : const Color(0x3316DB65), shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFF16DB65).withOpacity(0.4), width: 1.5),
               ),
-              textAlign: TextAlign.center,
+              child: const Icon(Icons.eco_rounded, color: Color(0xFF16DB65), size: 30),
             ),
-            const SizedBox(height: 24),
-            OutlinedButton(
-              onPressed: onRetry,
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: _neon),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 28, vertical: 12),
-              ),
-              child: Text(
-                'Coba Lagi',
-                style: GoogleFonts.poppins(
-                  fontSize: 13,
-                  color: _neon,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
+            const SizedBox(height: 20),
+            Text(greeting, textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.white, height: 1.6)),
+            const SizedBox(height: 10),
+            Text('Ketik pertanyaan Anda di bawah untuk memulai.', textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(fontSize: 13, color: const Color(0xFFA3A3A3))),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Message Pair
+// ---------------------------------------------------------------------------
+
+class _MessagePair extends StatelessWidget {
+  const _MessagePair({required this.message});
+  final ChatMessage message;
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _UserBubble(text: message.question),
+          const SizedBox(height: 12),
+          if (message.isFailed) _ErrorBubble(text: message.response)
+          else _AiBubble(text: message.response),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pending Bubble
+// ---------------------------------------------------------------------------
+
+class _PendingBubble extends StatefulWidget {
+  const _PendingBubble({required this.question});
+  final String question;
+  @override State<_PendingBubble> createState() => _PendingBubbleState();
+}
+class _PendingBubbleState extends State<_PendingBubble> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double>   _anim;
+  @override void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
+  }
+  @override void dispose() { _ctrl.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _UserBubble(text: widget.question),
+          const SizedBox(height: 12),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            _AiAvatar(),
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color      : const Color(0xFF111111),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(4), topRight: Radius.circular(16),
+                  bottomLeft: Radius.circular(16), bottomRight: Radius.circular(16),
+                ),
+                border: Border.all(color: const Color(0xFF1A1A1A)),
+              ),
+              child: FadeTransition(
+                opacity: _anim,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(3, (i) => Padding(
+                    padding: EdgeInsets.only(left: i == 0 ? 0 : 5),
+                    child: Container(width: 7, height: 7,
+                      decoration: const BoxDecoration(color: Color(0xFF16DB65), shape: BoxShape.circle)),
+                  )),
+                ),
+              ),
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Disconnected Bubble
+// ---------------------------------------------------------------------------
+
+class _DisconnectedBubble extends StatelessWidget {
+  const _DisconnectedBubble({required this.message, required this.onResend});
+  final ChatMessage  message;
+  final VoidCallback onResend;
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _UserBubble(text: message.question),
+          const SizedBox(height: 12),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              width: 30, height: 30,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle, color: const Color(0x33FF9800),
+                border: Border.all(color: const Color(0xFFFF9800).withOpacity(0.4)),
+              ),
+              child: const Icon(Icons.wifi_off_rounded, color: Color(0xFFFF9800), size: 15),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color      : const Color(0xFF1A1200),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(4), topRight: Radius.circular(16),
+                  bottomLeft: Radius.circular(16), bottomRight: Radius.circular(16),
+                ),
+                border: Border.all(color: const Color(0xFFFF9800).withOpacity(0.3)),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Koneksi terputus sebelum jawaban diterima.',
+                  style: GoogleFonts.poppins(fontSize: 13, color: const Color(0xFFFFB74D), height: 1.5)),
+                const SizedBox(height: 10),
+                GestureDetector(
+                  onTap: onResend,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2A1A00),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFFF9800).withOpacity(0.5)),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.refresh_rounded, color: Color(0xFFFF9800), size: 14),
+                      const SizedBox(width: 6),
+                      Text('Kirim ulang pertanyaan',
+                        style: GoogleFonts.poppins(fontSize: 12, color: const Color(0xFFFF9800), fontWeight: FontWeight.w500)),
+                    ]),
+                  ),
+                ),
+              ]),
+            )),
+          ]),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared Bubbles
+// ---------------------------------------------------------------------------
+
+class _AiAvatar extends StatelessWidget {
+  @override Widget build(BuildContext context) => Container(
+    width: 30, height: 30,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle, color: const Color(0x3316DB65),
+      border: Border.all(color: const Color(0xFF16DB65).withOpacity(0.4)),
+    ),
+    child: const Icon(Icons.eco_rounded, color: Color(0xFF16DB65), size: 15),
+  );
+}
+
+class _UserBubble extends StatelessWidget {
+  const _UserBubble({required this.text});
+  final String text;
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Container(
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.65),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0x3316DB65),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(16), topRight: Radius.circular(16),
+            bottomLeft: Radius.circular(16), bottomRight: Radius.circular(4),
+          ),
+          border: Border.all(color: const Color(0xFF16DB65).withOpacity(0.25)),
+        ),
+        child: Text(text, style: GoogleFonts.poppins(fontSize: 14, color: Colors.white, height: 1.6)),
+      ),
+    );
+  }
+}
+
+class _AiBubble extends StatelessWidget {
+  const _AiBubble({required this.text});
+  final String text;
+  @override
+  Widget build(BuildContext context) {
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _AiAvatar(), const SizedBox(width: 10),
+      Expanded(child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color      : const Color(0xFF111111),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(4), topRight: Radius.circular(16),
+            bottomLeft: Radius.circular(16), bottomRight: Radius.circular(16),
+          ),
+          border: Border.all(color: const Color(0xFF1A1A1A)),
+        ),
+        child: MarkdownBody(
+          data: text, selectable: true, extensionSet: md.ExtensionSet.gitHubWeb,
+          onTapLink: (text, href, title) { if (href != null) launchUrl(Uri.parse(href)); },
+          styleSheet: MarkdownStyleSheet(
+            p        : GoogleFonts.poppins(fontSize: 14, color: Colors.white, height: 1.7),
+            strong   : GoogleFonts.poppins(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w600),
+            em       : GoogleFonts.poppins(fontSize: 14, color: Colors.white, fontStyle: FontStyle.italic),
+            h1       : GoogleFonts.poppins(fontSize: 20, color: Colors.white, fontWeight: FontWeight.w700, height: 1.4),
+            h2       : GoogleFonts.poppins(fontSize: 17, color: Colors.white, fontWeight: FontWeight.w600, height: 1.4),
+            h3       : GoogleFonts.poppins(fontSize: 15, color: Colors.white, fontWeight: FontWeight.w600, height: 1.4),
+            code     : GoogleFonts.sourceCodePro(fontSize: 13, color: const Color(0xFF16DB65), backgroundColor: const Color(0xFF1A2A1A)),
+            codeblockDecoration: BoxDecoration(
+              color: const Color(0xFF0A1A0A), borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFF16DB65).withOpacity(0.2)),
+            ),
+            codeblockPadding: const EdgeInsets.all(14),
+            listBullet: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFF16DB65)),
+            listIndent: 20,
+            blockquote: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFFCCCCCC), fontStyle: FontStyle.italic, height: 1.6),
+            blockquoteDecoration: BoxDecoration(
+              border: Border(left: BorderSide(color: const Color(0xFF16DB65).withOpacity(0.5), width: 3)),
+            ),
+            blockquotePadding: const EdgeInsets.only(left: 12),
+            horizontalRuleDecoration: BoxDecoration(
+              border: Border(top: BorderSide(color: const Color(0xFF2A2A2A), width: 1)),
+            ),
+            a                : GoogleFonts.poppins(fontSize: 14, color: const Color(0xFF16DB65), decoration: TextDecoration.underline, decorationColor: const Color(0xFF16DB65).withOpacity(0.5)),
+            tableHead        : GoogleFonts.poppins(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w600),
+            tableBody        : GoogleFonts.poppins(fontSize: 13, color: const Color(0xFFCCCCCC)),
+            tableBorder      : TableBorder.all(color: const Color(0xFF2A2A2A), width: 1),
+            tableHeadAlign   : TextAlign.left,
+            tableCellsPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            pPadding : const EdgeInsets.only(bottom: 8),
+            h1Padding: const EdgeInsets.only(top: 4, bottom: 8),
+            h2Padding: const EdgeInsets.only(top: 4, bottom: 6),
+            h3Padding: const EdgeInsets.only(top: 4, bottom: 4),
+          ),
+        ),
+      )),
+    ]);
+  }
+}
+
+class _ErrorBubble extends StatelessWidget {
+  const _ErrorBubble({required this.text});
+  final String text;
+  @override
+  Widget build(BuildContext context) {
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Container(
+        width: 30, height: 30,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle, color: const Color(0x33FF4444),
+          border: Border.all(color: const Color(0xFFFF4444).withOpacity(0.4)),
+        ),
+        child: const Icon(Icons.error_outline_rounded, color: Color(0xFFFF4444), size: 15),
+      ),
+      const SizedBox(width: 10),
+      Expanded(child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color      : const Color(0xFF1A0A0A),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(4), topRight: Radius.circular(16),
+            bottomLeft: Radius.circular(16), bottomRight: Radius.circular(16),
+          ),
+          border: Border.all(color: const Color(0xFFFF4444).withOpacity(0.3)),
+        ),
+        child: Text(
+          text.isNotEmpty ? text : 'Terjadi kesalahan saat memproses pertanyaan.',
+          style: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFFFF8888), height: 1.6)),
+      )),
+    ]);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Input Bar
+// ---------------------------------------------------------------------------
+
+class _InputBar extends StatefulWidget {
+  const _InputBar({required this.controller, required this.focusNode, required this.sending, required this.onSend});
+  final TextEditingController controller;
+  final FocusNode             focusNode;
+  final bool                  sending;
+  final VoidCallback          onSend;
+  @override State<_InputBar> createState() => _InputBarState();
+}
+class _InputBarState extends State<_InputBar> {
+  bool _hasText = false;
+  @override void initState() {
+    super.initState();
+    widget.controller.addListener(() {
+      final has = widget.controller.text.trim().isNotEmpty;
+      if (has != _hasText) setState(() => _hasText = has);
+    });
+  }
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+      decoration: const BoxDecoration(
+        color : Color(0xFF0D0D0D),
+        border: Border(top: BorderSide(color: Color(0xFF1A1A1A))),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 150),
+            child: TextField(
+              controller: widget.controller, focusNode: widget.focusNode,
+              maxLines: null, keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.newline, enabled: !widget.sending,
+              style: GoogleFonts.poppins(fontSize: 14, color: Colors.white),
+              cursorColor: const Color(0xFF16DB65),
+              decoration: InputDecoration(
+                hintText : 'Ketik pertanyaan Anda...',
+                hintStyle: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFFA3A3A3)),
+                filled: true, fillColor: const Color(0xFF111111),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                border       : OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF1A1A1A))),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF1A1A1A))),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF16DB65), width: 1.5)),
+                disabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF1A1A1A))),
+              ),
+            ),
+          )),
+          const SizedBox(width: 10),
+          SizedBox(width: 48, height: 48, child: ElevatedButton(
+            onPressed: (widget.sending || !_hasText) ? null : widget.onSend,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _hasText && !widget.sending ? const Color(0xFF16DB65) : const Color(0xFF1A1A1A),
+              padding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
+            child: widget.sending
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                : const Icon(Icons.arrow_upward_rounded, color: Colors.black, size: 20),
+          )),
+        ],
       ),
     );
   }

@@ -1,0 +1,1212 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+// ---------------------------------------------------------------------------
+// API
+// ---------------------------------------------------------------------------
+
+final _dio = Dio(
+  BaseOptions(
+    baseUrl: 'http://localhost:8000',
+    connectTimeout: const Duration(seconds: 10),
+    receiveTimeout: const Duration(seconds: 10),
+    headers: {'Content-Type': 'application/json'},
+  ),
+);
+
+// Secure Storage — final bukan const agar tidak crash di web
+final _storage = FlutterSecureStorage(
+  aOptions: const AndroidOptions(encryptedSharedPreferences: true),
+  webOptions: const WebOptions(
+    dbName: 'agribot_secure',
+    publicKey: 'agribot_key',
+  ),
+);
+
+// Interval refresh token — 25 menit agar aman sebelum server expire (30 menit)
+const _kRefreshInterval = Duration(minutes: 25);
+
+// ---------------------------------------------------------------------------
+// Warna & konstanta
+// ---------------------------------------------------------------------------
+
+const _bg        = Color(0xFF020202);
+const _neon      = Color(0xFF16DB65);
+const _neonDim   = Color(0x3316DB65);
+const _surface   = Color(0xFF0D0D0D);
+const _surfaceAlt = Color(0xFF111111);
+const _textMuted = Color(0xFFA3A3A3);
+
+// ---------------------------------------------------------------------------
+// Model sederhana
+// ---------------------------------------------------------------------------
+
+class _UserData {
+  final int    id;
+  final String username;
+  final String email;
+  final String name;
+  final bool   isVerified;
+  final bool   isActive;
+
+  const _UserData({
+    required this.id,
+    required this.username,
+    required this.email,
+    required this.name,
+    required this.isVerified,
+    required this.isActive,
+  });
+
+  factory _UserData.fromJson(Map<String, dynamic> json) => _UserData(
+        id        : json['id']          as int,
+        username  : json['username']    as String,
+        email     : json['email']       as String,
+        name      : json['name']        as String,
+        isVerified: json['is_verified'] as bool,
+        isActive  : json['is_active']   as bool,
+      );
+}
+
+class _SessionItem {
+  final int    sessionId;
+  final String deviceInfo;
+  final String createdAt;
+  final String accessTokenExpiresAt;
+  final bool   isCurrent;
+
+  const _SessionItem({
+    required this.sessionId,
+    required this.deviceInfo,
+    required this.createdAt,
+    required this.accessTokenExpiresAt,
+    required this.isCurrent,
+  });
+
+  factory _SessionItem.fromJson(Map<String, dynamic> json) => _SessionItem(
+        sessionId           : json['session_id']              as int,
+        deviceInfo          : json['device_info']             as String? ?? 'Unknown Device',
+        createdAt           : json['created_at']              as String,
+        accessTokenExpiresAt: json['access_token_expires_at'] as String,
+        isCurrent           : json['is_current']              as bool,
+      );
+}
+
+// ---------------------------------------------------------------------------
+// User Profile Page
+// ---------------------------------------------------------------------------
+
+class UserProfilePage extends StatefulWidget {
+  /// Token & userId dibaca langsung dari secure storage — tidak perlu dikirim
+  /// lewat constructor. Constructor tetap menerima parameter opsional untuk
+  /// kompatibilitas sementara sebelum semua route diupdate.
+  final String? accessToken;
+  final int?    userId;
+
+  const UserProfilePage({
+    super.key,
+    this.accessToken,
+    this.userId,
+  });
+
+  @override
+  State<UserProfilePage> createState() => _UserProfilePageState();
+}
+
+class _UserProfilePageState extends State<UserProfilePage>
+    with SingleTickerProviderStateMixin {
+  // ── Auth state — dibaca dari secure storage saat initState ────────────────
+  String? _accessToken;
+  int?    _userId;
+  Timer?  _refreshTimer;
+
+  _UserData?         _user;
+  List<_SessionItem> _sessions      = [];
+  bool               _loadingUser   = true;
+  bool               _loadingLogout = false;
+  String?            _error;
+
+  late final AnimationController _fadeController;
+  late final Animation<double>   _fadeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOut,
+    );
+    _initAuth();
+  }
+
+  /// Baca access token & userId dari secure storage, lalu mulai sesi.
+  Future<void> _initAuth() async {
+    try {
+      // Baca sequential — IndexedDB web tidak support concurrent reads
+      final storedToken  = await _storage.read(key: 'access_token');
+      final storedUserId = await _storage.read(key: 'user_id');
+
+      _accessToken = storedToken  ?? widget.accessToken;
+      _userId      = (storedUserId != null)
+          ? int.tryParse(storedUserId)
+          : widget.userId;
+    } catch (_) {
+      // Storage error — fallback ke constructor params
+      _accessToken = widget.accessToken;
+      _userId      = widget.userId;
+    }
+
+    if (_accessToken == null || _accessToken!.isEmpty || _userId == null) {
+      if (mounted) context.go('/users/login');
+      return;
+    }
+
+    _startRefreshTimer();
+    _fetchData();
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _fadeController.dispose();
+    super.dispose();
+  }
+
+  // ── Background token refresh ───────────────────────────────────────────────
+
+  /// Jalankan timer periodik setiap [_kRefreshInterval].
+  /// Dipanggil sekali saat _initAuth selesai.
+  void _startRefreshTimer() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(_kRefreshInterval, (_) => _silentRefresh());
+  }
+
+  /// Hit POST /users/refresh-token secara silent.
+  /// - Jika berhasil: tulis access_token & refresh_token baru ke storage
+  ///   dan update _accessToken di state.
+  /// - Jika 401/gagal: token sudah tidak bisa diselamatkan → paksa login ulang.
+  Future<void> _silentRefresh() async {
+    final currentRefresh = await _storage.read(key: 'refresh_token');
+    if (currentRefresh == null || currentRefresh.isEmpty) {
+      _forceLogout();
+      return;
+    }
+
+    try {
+      final response = await _dio.post(
+        '/users/refresh-token',
+        data: {'refresh_token': currentRefresh},
+      );
+
+      if (response.statusCode == 200) {
+        final data        = response.data['data'] as Map<String, dynamic>;
+        final newAccess   = data['access_token']  as String;
+        final newRefresh  = data['refresh_token'] as String;
+
+        // Tulis token baru ke storage
+        await Future.wait([
+          _storage.write(key: 'access_token',  value: newAccess),
+          _storage.write(key: 'refresh_token', value: newRefresh),
+        ]);
+
+        // Update created_at session jika server mengembalikannya
+        if (data['created_at'] != null) {
+          await _storage.write(
+            key: 'session_created_at',
+            value: data['created_at'] as String,
+          );
+        }
+
+        // Update state — request berikutnya langsung pakai token baru
+        if (mounted) setState(() => _accessToken = newAccess);
+      }
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      if (statusCode == 401 || statusCode == 403) {
+        // Refresh token expired / tidak valid → session sudah mati
+        _forceLogout();
+      }
+      // Error jaringan sementara — biarkan, timer akan coba lagi nanti
+    } catch (_) {
+      // Abaikan error tak terduga, jangan paksa logout
+    }
+  }
+
+  /// Hapus semua token dari storage dan redirect ke login.
+  Future<void> _forceLogout() async {
+    _refreshTimer?.cancel();
+    await Future.wait([
+      _storage.delete(key: 'access_token'),
+      _storage.delete(key: 'refresh_token'),
+      _storage.delete(key: 'user_id'),
+      _storage.delete(key: 'session_created_at'),
+    ]);
+    if (mounted) context.go('/users/login');
+  }
+
+  Map<String, String> get _authHeaders => {
+        'Authorization': 'Bearer ${_accessToken ?? ''}',
+      };
+
+  // ── Fetch user + sessions sekaligus ───────────────────────────────────────
+
+  Future<void> _fetchData() async {
+    setState(() {
+      _loadingUser = true;
+      _error       = null;
+    });
+
+    try {
+      final results = await Future.wait([
+        _dio.get(
+          '/users/$_userId',
+          options: Options(headers: _authHeaders),
+        ),
+        _dio.get(
+          '/users/sessions',
+          options: Options(headers: _authHeaders),
+        ),
+      ]);
+
+      final userData     = results[0].data['data'] as Map<String, dynamic>;
+      final sessionData  = results[1].data['data'] as Map<String, dynamic>;
+      final sessionsList = sessionData['sessions'] as List<dynamic>;
+
+      setState(() {
+        _user     = _UserData.fromJson(userData);
+        _sessions = sessionsList
+            .map((s) => _SessionItem.fromJson(s as Map<String, dynamic>))
+            .toList();
+        _loadingUser = false;
+      });
+
+      _fadeController.forward(from: 0);
+    } on DioException catch (e) {
+      String msg = 'Gagal memuat data.';
+      if (e.response?.data['detail'] != null) {
+        msg = e.response!.data['detail'].toString();
+      }
+      setState(() {
+        _error       = msg;
+        _loadingUser = false;
+      });
+    } catch (_) {
+      setState(() {
+        _error       = 'Terjadi kesalahan tidak terduga.';
+        _loadingUser = false;
+      });
+    }
+  }
+
+  // ── Logout device ini ─────────────────────────────────────────────────────
+
+  Future<void> _handleLogout() async {
+    final confirmed = await _showConfirmDialog(
+      title   : 'Keluar',
+      message : 'Yakin ingin keluar dari akun ini?',
+      confirm : 'Keluar',
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() => _loadingLogout = true);
+
+    try {
+      await _dio.post(
+        '/users/logout',
+        options: Options(headers: _authHeaders),
+      );
+
+      // Hapus semua token dari storage
+      await Future.wait([
+        _storage.delete(key: 'access_token'),
+        _storage.delete(key: 'refresh_token'),
+        _storage.delete(key: 'user_id'),
+        _storage.delete(key: 'session_created_at'),
+      ]);
+
+      if (mounted) context.go('/users/login');
+    } on DioException catch (e) {
+      if (!mounted) return;
+      String msg = 'Gagal logout.';
+      if (e.response?.data['detail'] != null) {
+        msg = e.response!.data['detail'].toString();
+      }
+      _showErrorSnackbar(msg);
+    } finally {
+      if (mounted) setState(() => _loadingLogout = false);
+    }
+  }
+
+  // ── Logout other devices ──────────────────────────────────────────────────
+
+  Future<void> _handleLogoutOtherDevices() async {
+    final otherCount = _sessions.where((s) => !s.isCurrent).length;
+    if (otherCount == 0) {
+      _showInfoSnackbar('Tidak ada device lain yang aktif.');
+      return;
+    }
+
+    final confirmed = await _showConfirmDialog(
+      title  : 'Logout Device Lain',
+      message: 'Logout dari $otherCount device lain yang sedang aktif?',
+      confirm: 'Logout Semua',
+    );
+    if (!confirmed || !mounted) return;
+
+    try {
+      await _dio.post(
+        '/users/logout/other-devices',
+        options: Options(headers: _authHeaders),
+      );
+      if (mounted) {
+        _showSuccessSnackbar('Berhasil logout dari $otherCount device lain.');
+        _fetchData();
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      String msg = 'Gagal logout device lain.';
+      if (e.response?.data['detail'] != null) {
+        msg = e.response!.data['detail'].toString();
+      }
+      _showErrorSnackbar(msg);
+    }
+  }
+
+  // ── Dialog konfirmasi ─────────────────────────────────────────────────────
+
+  Future<bool> _showConfirmDialog({
+    required String title,
+    required String message,
+    required String confirm,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: _surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFF1F1F1F)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                message,
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  color: _textMuted,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFF2A2A2A)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: Text(
+                        'Batal',
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          color: _textMuted,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF4D4D),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: Text(
+                        confirm,
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return result ?? false;
+  }
+
+  // ── Snackbars ─────────────────────────────────────────────────────────────
+
+  void _showErrorSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      _buildSnackbar(message, const Color(0xFFFF4D4D)),
+    );
+  }
+
+  void _showSuccessSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      _buildSnackbar(message, _neon),
+    );
+  }
+
+  void _showInfoSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      _buildSnackbar(message, const Color(0xFF2A2A2A)),
+    );
+  }
+
+  SnackBar _buildSnackbar(String message, Color borderColor) {
+    return SnackBar(
+      content: Text(
+        message,
+        style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
+      ),
+      backgroundColor: const Color(0xFF1A1A1A),
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.all(16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: borderColor, width: 1),
+      ),
+    );
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: _loadingUser
+            ? const Center(
+                child: CircularProgressIndicator(color: _neon, strokeWidth: 2),
+              )
+            : _error != null
+                ? _ErrorView(error: _error!, onRetry: _fetchData)
+                : FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: CustomScrollView(
+                      slivers: [
+                        _buildAppBar(),
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 8),
+                          sliver: SliverList(
+                            delegate: SliverChildListDelegate([
+                              _ProfileCard(user: _user!),
+                              const SizedBox(height: 24),
+                              _CredentialCard(
+                                user: _user!,
+                                onChangeEmail: () => context.push(
+                                  '/users/change-email/otp/verify-otp?email=${Uri.encodeComponent(_user!.email)}',
+                                ).then((_) => _fetchData()),
+                              ),
+                              const SizedBox(height: 24),
+                              _SessionsCard(
+                                sessions: _sessions,
+                                onLogoutOtherDevices: _handleLogoutOtherDevices,
+                              ),
+                              const SizedBox(height: 32),
+                              _LogoutButton(
+                                isLoading: _loadingLogout,
+                                onPressed: _handleLogout,
+                              ),
+                              const SizedBox(height: 32),
+                            ]),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+      ),
+    );
+  }
+
+  Widget _buildAppBar() {
+    return SliverAppBar(
+      backgroundColor: _bg,
+      pinned: true,
+      elevation: 0,
+      automaticallyImplyLeading: false,
+      title: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: _neonDim,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                  color: _neon.withOpacity(0.3),
+                  blurRadius: 14,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            child: const Center(
+              child: Text('🌿', style: TextStyle(fontSize: 18)),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'AgriBot',
+            style: GoogleFonts.poppins(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+              letterSpacing: -0.3,
+            ),
+          ),
+        ],
+      ),
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Container(
+          height: 1,
+          color: const Color(0xFF111111),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Profile Card — avatar inisial + nama + username
+// ---------------------------------------------------------------------------
+
+class _ProfileCard extends StatelessWidget {
+  const _ProfileCard({required this.user});
+  final _UserData user;
+
+  String get _initials {
+    final parts = user.name.trim().split(' ');
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return parts[0].substring(0, parts[0].length.clamp(0, 2)).toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF1A1A1A)),
+        boxShadow: [
+          BoxShadow(
+            color: _neon.withOpacity(0.06),
+            blurRadius: 24,
+            spreadRadius: 0,
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Avatar inisial dengan neon glow
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: _neonDim,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: _neon.withOpacity(0.3),
+                  blurRadius: 18,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: Center(
+              child: Text(
+                _initials,
+                style: GoogleFonts.poppins(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: _neon,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  user.name,
+                  style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: -0.2,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '@${user.username}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: _neon,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Badge status
+                Row(
+                  children: [
+                    _StatusBadge(
+                      label: user.isVerified ? 'Terverifikasi' : 'Belum Verifikasi',
+                      color: user.isVerified ? _neon : const Color(0xFFFFB800),
+                    ),
+                    const SizedBox(width: 8),
+                    _StatusBadge(
+                      label: user.isActive ? 'Aktif' : 'Nonaktif',
+                      color: user.isActive ? _neon : const Color(0xFFFF4D4D),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.label, required this.color});
+  final String label;
+  final Color  color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.35), width: 1),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.poppins(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: color,
+          letterSpacing: 0.2,
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Credential Card — email & ID
+// ---------------------------------------------------------------------------
+
+class _CredentialCard extends StatelessWidget {
+  const _CredentialCard({required this.user, this.onChangeEmail});
+  final _UserData    user;
+  final VoidCallback? onChangeEmail;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      title: 'Informasi Akun',
+      icon: Icons.badge_outlined,
+      children: [
+        // Email row + anchor ganti email
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            children: [
+              const Icon(Icons.mail_outline_rounded, size: 16, color: _textMuted),
+              const SizedBox(width: 10),
+              Text(
+                'Email',
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: _textMuted,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    user.email,
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  GestureDetector(
+                    onTap: onChangeEmail,
+                    child: Text(
+                      'Ganti Email',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        color: _neon,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        _Divider(),
+        _InfoRow(
+          icon : Icons.tag_rounded,
+          label: 'User ID',
+          value: '#${user.id}',
+          valueColor: _textMuted,
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sessions Card
+// ---------------------------------------------------------------------------
+
+class _SessionsCard extends StatelessWidget {
+  const _SessionsCard({
+    required this.sessions,
+    required this.onLogoutOtherDevices,
+  });
+
+  final List<_SessionItem> sessions;
+  final VoidCallback       onLogoutOtherDevices;
+
+  @override
+  Widget build(BuildContext context) {
+    final otherCount = sessions.where((s) => !s.isCurrent).length;
+
+    return _SectionCard(
+      title: 'Sesi Aktif',
+      icon: Icons.devices_rounded,
+      trailing: otherCount > 0
+          ? GestureDetector(
+              onTap: onLogoutOtherDevices,
+              child: Text(
+                'Logout device lain',
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  color: const Color(0xFFFF4D4D),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            )
+          : null,
+      children: sessions.isEmpty
+          ? [
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  'Tidak ada sesi aktif.',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: _textMuted,
+                  ),
+                ),
+              ),
+            ]
+          : [
+              for (int i = 0; i < sessions.length; i++) ...[
+                _SessionTile(session: sessions[i]),
+                if (i < sessions.length - 1) _Divider(),
+              ],
+            ],
+    );
+  }
+}
+
+class _SessionTile extends StatelessWidget {
+  const _SessionTile({required this.session});
+  final _SessionItem session;
+
+  String _formatDate(String iso) {
+    try {
+      // Server menyimpan created_at dalam UTC tanpa suffix 'Z'.
+      // Tambahkan 'Z' agar DateTime.parse tahu ini UTC, baru konversi ke local.
+      final normalized = iso.endsWith('Z') ? iso : '${iso}Z';
+      final dt  = DateTime.parse(normalized).toLocal();
+      final now = DateTime.now();
+      final diff = now.difference(dt);
+      if (diff.inMinutes < 1)  return 'Baru saja';
+      if (diff.inHours < 1)    return '${diff.inMinutes} menit lalu';
+      if (diff.inDays < 1)     return '${diff.inHours} jam lalu';
+      if (diff.inDays < 7)     return '${diff.inDays} hari lalu';
+      return '${dt.day}/${dt.month}/${dt.year}';
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: session.isCurrent ? _neonDim : const Color(0xFF1A1A1A),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              Icons.smartphone_rounded,
+              size: 18,
+              color: session.isCurrent ? _neon : _textMuted,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        session.deviceInfo,
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (session.isCurrent)
+                      Container(
+                        margin: const EdgeInsets.only(left: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _neonDim,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'Device ini',
+                          style: GoogleFonts.poppins(
+                            fontSize: 9,
+                            color: _neon,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Login ${_formatDate(session.createdAt)}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    color: _textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Logout Button
+// ---------------------------------------------------------------------------
+
+class _LogoutButton extends StatelessWidget {
+  const _LogoutButton({required this.isLoading, required this.onPressed});
+  final bool         isLoading;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: OutlinedButton(
+        onPressed: isLoading ? null : onPressed,
+        style: OutlinedButton.styleFrom(
+          side: const BorderSide(color: Color(0xFFFF4D4D), width: 1.5),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          backgroundColor: const Color(0xFFFF4D4D).withOpacity(0.06),
+        ),
+        child: isLoading
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Color(0xFFFF4D4D),
+                ),
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.logout_rounded,
+                    size: 18,
+                    color: Color(0xFFFF4D4D),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Keluar',
+                    style: GoogleFonts.poppins(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFFFF4D4D),
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reusable section card
+// ---------------------------------------------------------------------------
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({
+    required this.title,
+    required this.icon,
+    required this.children,
+    this.trailing,
+  });
+
+  final String       title;
+  final IconData     icon;
+  final List<Widget> children;
+  final Widget?      trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF1A1A1A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: Row(
+              children: [
+                Icon(icon, size: 15, color: _neon),
+                const SizedBox(width: 7),
+                Text(
+                  title,
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _neon,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                if (trailing != null) ...[
+                  const Spacer(),
+                  trailing!,
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          // Divider tipis
+          Container(height: 1, color: const Color(0xFF161616)),
+          // Content
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: children,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Info row
+// ---------------------------------------------------------------------------
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+
+  final IconData icon;
+  final String   label;
+  final String   value;
+  final Color?   valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: _textMuted),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              color: _textMuted,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              color: valueColor ?? Colors.white,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Divider tipis
+// ---------------------------------------------------------------------------
+
+class _Divider extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) =>
+      Container(height: 1, color: const Color(0xFF161616));
+}
+
+// ---------------------------------------------------------------------------
+// Error view
+// ---------------------------------------------------------------------------
+
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.error, required this.onRetry});
+  final String   error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.wifi_off_rounded, color: _textMuted, size: 48),
+            const SizedBox(height: 16),
+            Text(
+              error,
+              style: GoogleFonts.poppins(
+                fontSize: 13,
+                color: _textMuted,
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            OutlinedButton(
+              onPressed: onRetry,
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: _neon),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 28, vertical: 12),
+              ),
+              child: Text(
+                'Coba Lagi',
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  color: _neon,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

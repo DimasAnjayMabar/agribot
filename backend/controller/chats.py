@@ -1,11 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+import asyncio
+import json
 import logging
-from database import get_db
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy.orm import Session
+
+from database import get_db, SessionLocal
 from middleware.auth import get_current_session
-from models import UserAuth
-from service.chats import ChatService
+from models import UserAuth, ChatDetail, Chat
+from service.chats import ChatService, _get_or_create_event, _cleanup_event
 from validation.chats import (
     CreateTopicSchema,
     RenameTitleSchema,
@@ -16,6 +20,9 @@ from validation.chats import (
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Chats"])
 
+_SSE_TIMEOUT_SECONDS    = 3600
+_SSE_HEARTBEAT_SECONDS  = 15
+
 
 # =============================================================================
 # HELPERS — Serializer
@@ -23,11 +30,12 @@ router = APIRouter(tags=["Chats"])
 
 def _serialize_detail(d) -> dict:
     return {
-        "id":         d.id,
-        "chat_id":    d.chat_id,
-        "question":   d.question,
-        "response":   d.response,
-        "created_at": d.created_at.isoformat(),
+        "id":                d.id,
+        "chat_id":           d.chat_id,
+        "question":          d.question,
+        "response":          d.response,
+        "processing_status": d.processing_status,
+        "created_at":        d.created_at.isoformat(),
         "pipeline_log": {
             "latency_ms":    d.pipeline_log.latency_ms,
             "status":        d.pipeline_log.status,
@@ -50,6 +58,14 @@ def _serialize_topic(chat, include_details: bool = False) -> dict:
     return data
 
 
+def _sse_event(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+def _sse_heartbeat() -> str:
+    return ": heartbeat\n\n"
+
+
 # =============================================================================
 # TOPICS
 # =============================================================================
@@ -60,12 +76,6 @@ def create_topic(
     db: Session = Depends(get_db),
     current_session: UserAuth = Depends(get_current_session),
 ):
-    """
-    Buat sesi chat baru secara eksplisit.
-    Gunakan endpoint ini hanya saat user klik tombol 'New Chat' di sidebar.
-    Saat user pertama kali membuka app dan langsung kirim pesan,
-    gunakan POST /chat/send dengan chat_id: null — topic dibuat otomatis.
-    """
     try:
         chat = ChatService.create_topic(db, current_session.user_id, body.title)
         return JSONResponse(
@@ -88,10 +98,6 @@ def get_topics(
     db: Session = Depends(get_db),
     current_session: UserAuth = Depends(get_current_session),
 ):
-    """
-    Ambil daftar semua topik chat milik user.
-    Cocok untuk sidebar — tanpa isi percakapan.
-    """
     try:
         chats = ChatService.get_topics(db, current_session.user_id)
         return JSONResponse(
@@ -118,10 +124,6 @@ def get_topic(
     db: Session = Depends(get_db),
     current_session: UserAuth = Depends(get_current_session),
 ):
-    """
-    Ambil satu topik beserta seluruh isi percakapannya.
-    Dipanggil saat user klik salah satu topik di sidebar.
-    """
     try:
         chat = ChatService.get_topic(db, current_session.user_id, chat_id)
         return JSONResponse(
@@ -145,9 +147,6 @@ def delete_topic(
     db: Session = Depends(get_db),
     current_session: UserAuth = Depends(get_current_session),
 ):
-    """
-    Hapus topik beserta seluruh isi percakapan dan pipeline log-nya (cascade).
-    """
     try:
         ChatService.delete_topic(db, current_session.user_id, chat_id)
         return JSONResponse(
@@ -168,9 +167,6 @@ def rename_topic(
     db: Session = Depends(get_db),
     current_session: UserAuth = Depends(get_current_session),
 ):
-    """
-    Ganti judul topik secara manual oleh user.
-    """
     try:
         chat = ChatService.rename_topic(db, current_session.user_id, chat_id, body.title)
         return JSONResponse(
@@ -192,7 +188,7 @@ def rename_topic(
 # CHAT MESSAGES
 # =============================================================================
 
-@router.post("/chat/send", status_code=status.HTTP_200_OK)
+@router.post("/chat/send", status_code=status.HTTP_202_ACCEPTED)
 def send_message(
     body: SendMessageSchema,
     db: Session = Depends(get_db),
@@ -201,23 +197,30 @@ def send_message(
     """
     Kirim pertanyaan ke AI.
 
-    - chat_id null  → topic baru dibuat otomatis dari 5 kata pertama pertanyaan.
-                      Frontend simpan chat_id dari response untuk pesan berikutnya.
-    - chat_id int   → lanjutkan percakapan di topic yang sudah ada.
-
-    Response selalu menyertakan chat_id sehingga frontend tidak perlu
-    hit endpoint lain untuk mengetahui ID topic yang baru dibuat.
+    Return 202 Accepted dengan detail_id + processing_status='pending'.
+    Response (jawaban AI) TIDAK ada di sini — frontend ambil via
+    GET /chat/message/{detail_id} setelah SSE memberi sinyal 'done'.
     """
     try:
         detail = ChatService.send_message(
-            db, current_session.user_id, body.chat_id, body.question
+            db,
+            current_session.user_id,
+            body.chat_id,
+            body.question,
+            db_factory=SessionLocal,
         )
         return JSONResponse(
-            status_code=status.HTTP_200_OK,
+            status_code=status.HTTP_202_ACCEPTED,
             content={
                 "success": True,
-                "message": "Pesan berhasil dikirim.",
-                "data":    _serialize_detail(detail),
+                "message": "Pertanyaan diterima, sedang diproses.",
+                "data": {
+                    "id":                detail.id,
+                    "chat_id":           detail.chat_id,
+                    "question":          detail.question,
+                    "processing_status": detail.processing_status,
+                    "created_at":        detail.created_at.isoformat(),
+                },
             },
         )
     except HTTPException as e:
@@ -227,29 +230,162 @@ def send_message(
         raise HTTPException(status_code=500, detail="Terjadi kesalahan saat mengirim pesan.")
 
 
-@router.patch("/chat/edit/{detail_id}", status_code=status.HTTP_200_OK)
+@router.get("/chat/message/{detail_id}", status_code=status.HTTP_200_OK)
+def get_message(
+    detail_id: int,
+    db: Session = Depends(get_db),
+    current_session: UserAuth = Depends(get_current_session),
+):
+    """
+    Ambil satu pesan lengkap (beserta jawaban AI) dari DB.
+
+    Frontend memanggil endpoint ini setelah SSE mengirim event 'done'.
+    Dengan cara ini, payload SSE hanya berupa sinyal — jawaban AI
+    selalu diambil langsung dari DB, bukan dari response JSON.
+    """
+    try:
+        detail = ChatService.get_detail(db, current_session.user_id, detail_id)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Pesan berhasil diambil.",
+                "data":    _serialize_detail(detail),
+            },
+        )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"GET /chat/message/{detail_id} error → {e}")
+        raise HTTPException(status_code=500, detail="Terjadi kesalahan saat mengambil pesan.")
+
+
+# Perbaiki bagian akhir stream_response
+@router.get("/chat/stream/{detail_id}")
+async def stream_response(
+    detail_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_session: UserAuth = Depends(get_current_session),
+):
+    try:
+        detail = ChatService.get_detail(db, current_session.user_id, detail_id)
+    except HTTPException as e:
+        raise e
+
+    async def event_stream():
+        # Cek status awal
+        if detail.processing_status in ("done", "failed"):
+            event_type = "done" if detail.processing_status == "done" else "error"
+            yield _sse_event(event_type, {
+                "detail_id": detail_id,
+                "processing_status": detail.processing_status,
+            })
+            _cleanup_event(detail_id)
+            return
+
+        yield _sse_event("waiting", {
+            "detail_id": detail_id,
+            "processing_status": "pending",
+            "message": "Sedang memproses...",
+        })
+
+        done_event = _get_or_create_event(detail_id)
+        elapsed = 0.0
+
+        try:
+            while elapsed < _SSE_TIMEOUT_SECONDS:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(done_event.wait()),
+                        timeout=_SSE_HEARTBEAT_SECONDS,
+                    )
+                    logger.info(f"Event triggered for detail_id={detail_id}")  # ✅ Tambah log
+                    break
+                except asyncio.TimeoutError:
+                    elapsed += _SSE_HEARTBEAT_SECONDS
+                    
+                    if await request.is_disconnected():
+                        logger.info(f"SSE client disconnected — detail_id={detail_id}")
+                        _cleanup_event(detail_id)
+                        return
+                    
+                    yield _sse_heartbeat()
+            else:
+                logger.warning(f"SSE timeout — detail_id={detail_id}")
+                yield _sse_event("timeout", {
+                    "detail_id": detail_id,
+                    "processing_status": "pending",
+                    "message": f"Timeout setelah {_SSE_TIMEOUT_SECONDS} detik.",
+                })
+                _cleanup_event(detail_id)
+                return
+
+        except Exception as exc:
+            logger.error(f"SSE stream error — detail_id={detail_id}: {exc}")
+            _cleanup_event(detail_id)
+            return
+
+        if await request.is_disconnected():
+            logger.info(f"SSE client disconnected (after done) — detail_id={detail_id}")
+            _cleanup_event(detail_id)
+            return
+
+        # ✅ Pastikan mengambil status terbaru dari DB
+        fresh_db = SessionLocal()
+        try:
+            fresh_detail = fresh_db.query(ChatDetail).filter_by(id=detail_id).first()
+            final_status = fresh_detail.processing_status if fresh_detail else "failed"
+            event_type = "done" if final_status == "done" else "error"
+            
+            logger.info(f"Sending {event_type} event for detail_id={detail_id}")  # ✅ Log
+            yield _sse_event(event_type, {
+                "detail_id": detail_id,
+                "processing_status": final_status,
+            })
+        finally:
+            fresh_db.close()
+            _cleanup_event(detail_id)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
+@router.patch("/chat/edit/{detail_id}", status_code=status.HTTP_202_ACCEPTED)
 def edit_message(
     detail_id: int,
     body: EditMessageSchema,
     db: Session = Depends(get_db),
     current_session: UserAuth = Depends(get_current_session),
 ):
-    """
-    Edit pertanyaan yang sudah ada.
-    - Update question
-    - Panggil ulang LLM dengan pertanyaan baru
-    - Update response dan PipelineLog di row yang sama
-    """
     try:
         detail = ChatService.edit_message(
-            db, current_session.user_id, detail_id, body.question
+            db,
+            current_session.user_id,
+            detail_id,
+            body.question,
+            db_factory=SessionLocal,
         )
         return JSONResponse(
-            status_code=status.HTTP_200_OK,
+            status_code=status.HTTP_202_ACCEPTED,
             content={
                 "success": True,
-                "message": "Pesan berhasil diedit.",
-                "data":    _serialize_detail(detail),
+                "message": "Pertanyaan diedit, sedang diproses ulang.",
+                "data": {
+                    "id":                detail.id,
+                    "chat_id":           detail.chat_id,
+                    "question":          detail.question,
+                    "processing_status": detail.processing_status,
+                    "created_at":        detail.created_at.isoformat(),
+                },
             },
         )
     except HTTPException as e:
@@ -259,28 +395,31 @@ def edit_message(
         raise HTTPException(status_code=500, detail="Terjadi kesalahan saat mengedit pesan.")
 
 
-@router.post("/chat/regenerate/{detail_id}", status_code=status.HTTP_200_OK)
+@router.post("/chat/regenerate/{detail_id}", status_code=status.HTTP_202_ACCEPTED)
 def regenerate_response(
     detail_id: int,
     db: Session = Depends(get_db),
     current_session: UserAuth = Depends(get_current_session),
 ):
-    """
-    Generate ulang jawaban AI tanpa mengubah pertanyaan.
-    - Ambil question dari detail_id
-    - Panggil LLM lagi
-    - Update response dan PipelineLog di row yang sama
-    """
     try:
         detail = ChatService.regenerate_response(
-            db, current_session.user_id, detail_id
+            db,
+            current_session.user_id,
+            detail_id,
+            db_factory=SessionLocal,
         )
         return JSONResponse(
-            status_code=status.HTTP_200_OK,
+            status_code=status.HTTP_202_ACCEPTED,
             content={
                 "success": True,
-                "message": "Jawaban berhasil di-regenerate.",
-                "data":    _serialize_detail(detail),
+                "message": "Sedang men-generate ulang jawaban.",
+                "data": {
+                    "id":                detail.id,
+                    "chat_id":           detail.chat_id,
+                    "question":          detail.question,
+                    "processing_status": detail.processing_status,
+                    "created_at":        detail.created_at.isoformat(),
+                },
             },
         )
     except HTTPException as e:
@@ -296,9 +435,6 @@ def delete_message(
     db: Session = Depends(get_db),
     current_session: UserAuth = Depends(get_current_session),
 ):
-    """
-    Hapus satu baris percakapan beserta pipeline log-nya (cascade).
-    """
     try:
         ChatService.delete_message(db, current_session.user_id, detail_id)
         return JSONResponse(

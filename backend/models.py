@@ -158,6 +158,7 @@ class ChatDetail(Base):
     question = Column(Text, nullable=False)
     response = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    processing_status = Column(String(10), nullable=False, default="done")
 
     # Relationships
     chat = relationship("Chat", back_populates="details")

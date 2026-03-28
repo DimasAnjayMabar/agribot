@@ -1,0 +1,570 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import 'chats.dart' show ChatTopic, ChatUserProfile;
+
+// ---------------------------------------------------------------------------
+// Konstanta Warna (shared)
+// ---------------------------------------------------------------------------
+
+const kChatBg         = Color(0xFF020202);
+const kChatNeon       = Color(0xFF16DB65);
+const kChatNeonDim    = Color(0x3316DB65);
+const kChatSurface    = Color(0xFF0D0D0D);
+const kChatSurfaceAlt = Color(0xFF111111);
+const kChatBorder     = Color(0xFF1A1A1A);
+const kChatTextMuted  = Color(0xFFA3A3A3);
+const kSidebarWidth   = 280.0;
+
+// ---------------------------------------------------------------------------
+// Sidebar (root widget yang di-export)
+// ---------------------------------------------------------------------------
+
+class ChatSidebar extends StatelessWidget {
+  const ChatSidebar({
+    super.key,
+    required this.topics,
+    required this.loading,
+    required this.activeChatId,
+    required this.profile,
+    required this.renamingId,
+    required this.renamingTemp,
+    required this.onNewChat,
+    required this.onSelectTopic,
+    required this.onDeleteTopic,
+    required this.onStartRename,
+    required this.onConfirmRename,
+    required this.onCancelRename,
+    required this.onRenameChange,
+    required this.onProfileTap,
+    required this.onLogout,
+  });
+
+  final List<ChatTopic>  topics;
+  final bool              loading;
+  final int?              activeChatId;
+  final ChatUserProfile?  profile;
+  final int?              renamingId;
+  final String?           renamingTemp;
+  final VoidCallback      onNewChat;
+  final void Function(ChatTopic) onSelectTopic;
+  final void Function(ChatTopic) onDeleteTopic;
+  final void Function(ChatTopic) onStartRename;
+  final void Function(ChatTopic, String) onConfirmRename;
+  final VoidCallback      onCancelRename;
+  final void Function(String) onRenameChange;
+  final VoidCallback      onProfileTap;
+  final VoidCallback      onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: kSidebarWidth,
+      decoration: const BoxDecoration(
+        color: kChatSurface,
+        border: Border(right: BorderSide(color: kChatBorder)),
+      ),
+      child: Column(
+        children: [
+          // ── Logo + New Chat ───────────────────────────────────────────────
+          _SidebarLogo(onNewChat: onNewChat),
+          Container(height: 1, color: kChatBorder),
+
+          // ── Topics List ───────────────────────────────────────────────────
+          Expanded(child: _TopicList(
+            topics      : topics,
+            loading     : loading,
+            activeChatId: activeChatId,
+            renamingId  : renamingId,
+            renamingTemp: renamingTemp,
+            onSelect    : onSelectTopic,
+            onDelete    : onDeleteTopic,
+            onStartRename   : onStartRename,
+            onConfirmRename : onConfirmRename,
+            onCancelRename  : onCancelRename,
+            onRenameChange  : onRenameChange,
+          )),
+
+          Container(height: 1, color: kChatBorder),
+
+          // ── Profile Card ──────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            child: _ProfileCard(profile: profile, onTap: onProfileTap),
+          ),
+
+          // ── Logout ────────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+            child: _LogoutButton(onPressed: onLogout),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Logo + New Chat Button
+// ---------------------------------------------------------------------------
+
+class _SidebarLogo extends StatelessWidget {
+  const _SidebarLogo({required this.onNewChat});
+  final VoidCallback onNewChat;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 12, 16),
+      child: Row(
+        children: [
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: kChatNeonDim,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: kChatNeon.withOpacity(0.4)),
+            ),
+            child: const Icon(Icons.eco_rounded, color: kChatNeon, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'AgriBot',
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const Spacer(),
+          Tooltip(
+            message: 'Chat Baru',
+            child: InkWell(
+              onTap: onNewChat,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: kChatBorder),
+                ),
+                child: const Icon(Icons.edit_square,
+                    size: 16, color: kChatTextMuted),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Topic List
+// ---------------------------------------------------------------------------
+
+class _TopicList extends StatelessWidget {
+  const _TopicList({
+    required this.topics,
+    required this.loading,
+    required this.activeChatId,
+    required this.renamingId,
+    required this.renamingTemp,
+    required this.onSelect,
+    required this.onDelete,
+    required this.onStartRename,
+    required this.onConfirmRename,
+    required this.onCancelRename,
+    required this.onRenameChange,
+  });
+
+  final List<ChatTopic> topics;
+  final bool            loading;
+  final int?            activeChatId;
+  final int?            renamingId;
+  final String?         renamingTemp;
+  final void Function(ChatTopic) onSelect;
+  final void Function(ChatTopic) onDelete;
+  final void Function(ChatTopic) onStartRename;
+  final void Function(ChatTopic, String) onConfirmRename;
+  final VoidCallback    onCancelRename;
+  final void Function(String) onRenameChange;
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: kChatNeon, strokeWidth: 2),
+      );
+    }
+    if (topics.isEmpty) {
+      return Center(
+        child: Text(
+          'Belum ada percakapan.',
+          style: GoogleFonts.poppins(fontSize: 12, color: kChatTextMuted),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      itemCount: topics.length,
+      itemBuilder: (_, i) {
+        final t = topics[i];
+        return _TopicTile(
+          topic          : t,
+          isActive       : t.id == activeChatId,
+          isRenaming     : t.id == renamingId,
+          renamingTemp   : renamingTemp,
+          onTap          : () => onSelect(t),
+          onDelete       : () => onDelete(t),
+          onStartRename  : () => onStartRename(t),
+          onConfirmRename: (v) => onConfirmRename(t, v),
+          onCancelRename : onCancelRename,
+          onRenameChange : onRenameChange,
+        );
+      },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Topic Tile
+// ---------------------------------------------------------------------------
+
+class _TopicTile extends StatefulWidget {
+  const _TopicTile({
+    required this.topic,
+    required this.isActive,
+    required this.isRenaming,
+    required this.renamingTemp,
+    required this.onTap,
+    required this.onDelete,
+    required this.onStartRename,
+    required this.onConfirmRename,
+    required this.onCancelRename,
+    required this.onRenameChange,
+  });
+
+  final ChatTopic topic;
+  final bool      isActive;
+  final bool      isRenaming;
+  final String?   renamingTemp;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+  final VoidCallback onStartRename;
+  final void Function(String) onConfirmRename;
+  final VoidCallback onCancelRename;
+  final void Function(String) onRenameChange;
+
+  @override
+  State<_TopicTile> createState() => _TopicTileState();
+}
+
+class _TopicTileState extends State<_TopicTile> {
+  bool _hovering = false;
+  late TextEditingController _renameCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _renameCtrl = TextEditingController(text: widget.topic.title);
+  }
+
+  @override
+  void didUpdateWidget(_TopicTile old) {
+    super.didUpdateWidget(old);
+    if (widget.isRenaming && !old.isRenaming) {
+      _renameCtrl.text = widget.topic.title;
+      _renameCtrl.selection = TextSelection(
+        baseOffset: 0, extentOffset: _renameCtrl.text.length,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _renameCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit:  (_) => setState(() => _hovering = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        margin: const EdgeInsets.only(bottom: 2),
+        decoration: BoxDecoration(
+          color: widget.isActive
+              ? kChatNeonDim
+              : _hovering
+                  ? Colors.white.withOpacity(0.04)
+                  : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: widget.isActive
+                ? kChatNeon.withOpacity(0.3)
+                : Colors.transparent,
+          ),
+        ),
+        child: widget.isRenaming ? _buildRename() : _buildNormal(),
+      ),
+    );
+  }
+
+  Widget _buildNormal() {
+    return InkWell(
+      onTap: widget.onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        child: Row(
+          children: [
+            Icon(
+              Icons.chat_bubble_outline_rounded,
+              size: 14,
+              color: widget.isActive ? kChatNeon : kChatTextMuted,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                widget.topic.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  color: widget.isActive ? kChatNeon : Colors.white70,
+                  fontWeight: widget.isActive
+                      ? FontWeight.w600
+                      : FontWeight.w400,
+                ),
+              ),
+            ),
+            if (_hovering || widget.isActive) ...[
+              const SizedBox(width: 4),
+              _TileAction(
+                icon   : Icons.drive_file_rename_outline_rounded,
+                onTap  : widget.onStartRename,
+                tooltip: 'Ganti nama',
+              ),
+              const SizedBox(width: 2),
+              _TileAction(
+                icon   : Icons.delete_outline_rounded,
+                onTap  : widget.onDelete,
+                tooltip: 'Hapus',
+                color  : const Color(0xFFFF4D4D),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRename() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: Row(
+        children: [
+          const Icon(Icons.edit_rounded, size: 14, color: kChatNeon),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller : _renameCtrl,
+              autofocus  : true,
+              style: GoogleFonts.poppins(fontSize: 13, color: Colors.white),
+              cursorColor: kChatNeon,
+              decoration : const InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+              onChanged  : widget.onRenameChange,
+              onSubmitted: widget.onConfirmRename,
+              inputFormatters: [LengthLimitingTextInputFormatter(60)],
+            ),
+          ),
+          InkWell(
+            onTap: () => widget.onConfirmRename(_renameCtrl.text),
+            borderRadius: BorderRadius.circular(4),
+            child: const Icon(Icons.check_rounded, size: 16, color: kChatNeon),
+          ),
+          const SizedBox(width: 4),
+          InkWell(
+            onTap: widget.onCancelRename,
+            borderRadius: BorderRadius.circular(4),
+            child: const Icon(Icons.close_rounded,
+                size: 16, color: kChatTextMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tile Action Button
+// ---------------------------------------------------------------------------
+
+class _TileAction extends StatelessWidget {
+  const _TileAction({
+    required this.icon,
+    required this.onTap,
+    required this.tooltip,
+    this.color = kChatTextMuted,
+  });
+
+  final IconData     icon;
+  final VoidCallback onTap;
+  final String       tooltip;
+  final Color        color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(4),
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: Icon(icon, size: 15, color: color),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Profile Card
+// ---------------------------------------------------------------------------
+
+class _ProfileCard extends StatefulWidget {
+  const _ProfileCard({required this.profile, required this.onTap});
+  final ChatUserProfile? profile;
+  final VoidCallback     onTap;
+
+  @override
+  State<_ProfileCard> createState() => _ProfileCardState();
+}
+
+class _ProfileCardState extends State<_ProfileCard> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final name     = widget.profile?.name  ?? '—';
+    final email    = widget.profile?.email ?? '—';
+    final initials = name.trim().isNotEmpty
+        ? name.trim().split(' ').take(2).map((w) => w[0].toUpperCase()).join()
+        : '?';
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit:  (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: _hovering ? kChatNeonDim : kChatSurfaceAlt,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: _hovering
+                  ? kChatNeon.withOpacity(0.4)
+                  : kChatBorder,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  shape : BoxShape.circle,
+                  color : kChatNeonDim,
+                  border: Border.all(color: kChatNeon.withOpacity(0.5)),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  initials,
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: kChatNeon,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Text(
+                      email,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                          fontSize: 11, color: kChatTextMuted),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  size: 18, color: kChatTextMuted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Logout Button
+// ---------------------------------------------------------------------------
+
+class _LogoutButton extends StatelessWidget {
+  const _LogoutButton({required this.onPressed});
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 42,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon : const Icon(Icons.logout_rounded,
+            size: 16, color: Color(0xFFFF4D4D)),
+        label: Text(
+          'Keluar',
+          style: GoogleFonts.poppins(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFFFF4D4D),
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          side: const BorderSide(color: Color(0xFFFF4D4D), width: 1),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10)),
+          backgroundColor: const Color(0xFFFF4D4D).withOpacity(0.06),
+        ),
+      ),
+    );
+  }
+}
