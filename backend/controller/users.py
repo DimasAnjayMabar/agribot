@@ -340,6 +340,22 @@ def verify_reset_password_otp(otp_input: VerifyOtp, db: Session = Depends(get_db
     except Exception as e:
         logger.error(f"POST /reset-password/verify-otp error → {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat verifikasi OTP.")
+    
+@router.post("/reset-password/resend-otp", status_code=status.HTTP_200_OK)
+def resend_registration_otp(body: RequestOtpSchema, db: Session = Depends(get_db)):
+    logger.debug(f"POST /reset-password/resend-otp → {body.email}")
+    try:
+        UserService.resend_reset_otp(db, body.email)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "message": "Jika email terdaftar dan belum terverifikasi, OTP akan dikirimkan."}
+        )
+    except HTTPException as e:
+        logger.warning(f"POST /reset-password/resend-otp failed → {e.detail}")
+        raise e
+    except Exception as e:
+        logger.error(f"POST /reset-password/resend-otp error → {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat mengirim OTP.")
 
 @router.post("/reset-password", status_code=status.HTTP_200_OK)
 def reset_password(reset_input: ResetPasswordSchema, db: Session = Depends(get_db)):

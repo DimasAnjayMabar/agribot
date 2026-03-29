@@ -118,7 +118,7 @@ class _RegisterVerifyOtpPageState extends State<RegisterVerifyOtpPage>
     setState(() => _isResending = true);
     try {
       await _dio.post(
-        '/users/register/resend-otp',
+        '/users/reset-password/resend-otp',
         data: {'email': widget.email},
       );
       if (mounted) {
