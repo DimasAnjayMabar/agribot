@@ -1042,6 +1042,208 @@ class _DisconnectedBubble extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
+// Markdown block splitter & sanitizer
+// ---------------------------------------------------------------------------
+
+/// Tipe blok konten: teks biasa atau tabel markdown mentah.
+sealed class _MdBlock {}
+class _MdText  extends _MdBlock { _MdText(this.text);   final String text; }
+class _MdTable extends _MdBlock { _MdTable(this.lines); final List<String> lines; }
+
+/// Pisahkan markdown menjadi blok teks dan blok tabel.
+/// <br> di luar tabel → \n biasa.
+/// <br> di dalam baris tabel → dibiarkan apa adanya (dihandle _RawTableWidget).
+List<_MdBlock> _splitBlocks(String raw) {
+  final lines   = raw.split('\n');
+  final blocks  = <_MdBlock>[];
+  final textBuf = <String>[];
+  final tableBuf= <String>[];
+
+  bool inTable  = false;
+
+  void flushText() {
+    if (textBuf.isEmpty) return;
+    final joined = textBuf.join('\n')
+        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+        .trim();
+    if (joined.isNotEmpty) blocks.add(_MdText(joined));
+    textBuf.clear();
+  }
+
+  void flushTable() {
+    if (tableBuf.isEmpty) return;
+    blocks.add(_MdTable(List.of(tableBuf)));
+    tableBuf.clear();
+  }
+
+  final tableRowRe = RegExp(r'^\s*\|.*\|\s*$');
+  final sepRowRe   = RegExp(r'^\s*\|[-| :]+\|\s*$');
+
+  for (final line in lines) {
+    final isRow = tableRowRe.hasMatch(line);
+    final isSep = sepRowRe.hasMatch(line);
+
+    if (isRow || isSep) {
+      if (!inTable) { flushText(); inTable = true; }
+      tableBuf.add(line);
+    } else {
+      if (inTable) { flushTable(); inTable = false; }
+      textBuf.add(line);
+    }
+  }
+
+  if (inTable) flushTable(); else flushText();
+  return blocks;
+}
+
+// ---------------------------------------------------------------------------
+// _RichCellContent — render isi satu cell dengan <br> sebagai baris baru
+// ---------------------------------------------------------------------------
+
+class _RichCellContent extends StatelessWidget {
+  const _RichCellContent({required this.cellText, required this.baseStyle});
+
+  final String    cellText;
+  final TextStyle baseStyle;
+
+  static final _brRe      = RegExp(r'<br\s*/?>', caseSensitive: false);
+  static final _numberedRe= RegExp(r'^(\d+)\.\s+(.+)$', dotAll: true);
+  static final _bulletRe  = RegExp(r'^[-–•]\s+(.+)$',   dotAll: true);
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = cellText
+        .split(_brRe)
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    if (parts.isEmpty) return const SizedBox.shrink();
+
+    if (parts.length == 1) {
+      return RichText(text: _parseInline(parts.first));
+    }
+
+    final widgets = <Widget>[];
+    for (var i = 0; i < parts.length; i++) {
+      final part        = parts[i];
+      final numMatch    = _numberedRe.firstMatch(part);
+      final bulletMatch = _bulletRe.firstMatch(part);
+
+      Widget row;
+      if (numMatch != null) {
+        row = Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('${numMatch.group(1)}. ',
+              style: baseStyle.copyWith(color: const Color(0xFF16DB65), fontWeight: FontWeight.w600)),
+          Expanded(child: RichText(text: _parseInline(numMatch.group(2)!))),
+        ]);
+      } else if (bulletMatch != null) {
+        row = Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('• ', style: baseStyle.copyWith(color: const Color(0xFF16DB65))),
+          Expanded(child: RichText(text: _parseInline(bulletMatch.group(1)!))),
+        ]);
+      } else {
+        row = RichText(text: _parseInline(part));
+      }
+
+      widgets.add(row);
+      if (i < parts.length - 1) widgets.add(const SizedBox(height: 4));
+    }
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min, children: widgets);
+  }
+
+  TextSpan _parseInline(String text) {
+    final spans   = <InlineSpan>[];
+    final pattern = RegExp(r'\*\*\*(.*?)\*\*\*|\*\*(.*?)\*\*|\*(.*?)\*');
+    int   last    = 0;
+
+    for (final m in pattern.allMatches(text)) {
+      if (m.start > last) spans.add(TextSpan(text: text.substring(last, m.start), style: baseStyle));
+      if      (m.group(1) != null) spans.add(TextSpan(text: m.group(1), style: baseStyle.copyWith(fontWeight: FontWeight.w700, fontStyle: FontStyle.italic)));
+      else if (m.group(2) != null) spans.add(TextSpan(text: m.group(2), style: baseStyle.copyWith(fontWeight: FontWeight.w700)));
+      else if (m.group(3) != null) spans.add(TextSpan(text: m.group(3), style: baseStyle.copyWith(fontStyle: FontStyle.italic)));
+      last = m.end;
+    }
+
+    if (last < text.length) spans.add(TextSpan(text: text.substring(last), style: baseStyle));
+    return TextSpan(children: spans);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _RawTableWidget — parse & render baris tabel dari raw markdown string
+// ---------------------------------------------------------------------------
+
+class _RawTableWidget extends StatelessWidget {
+  const _RawTableWidget({required this.lines});
+  final List<String> lines;
+
+  /// Pecah baris tabel menjadi list cell string (pertahankan <br> di dalamnya).
+  static List<String> _parseCells(String line) {
+    // Hapus pipe terdepan & trailing, lalu split by '|'
+    // Tapi kita harus hati-hati: '|' di dalam <br> tidak ada, jadi split aman.
+    String s = line.trim();
+    if (s.startsWith('|')) s = s.substring(1);
+    if (s.endsWith('|'))   s = s.substring(0, s.length - 1);
+    return s.split('|').map((c) => c.trim()).toList();
+  }
+
+  static bool _isSeparator(String line) =>
+      RegExp(r'^\s*\|[-| :]+\|\s*$').hasMatch(line);
+
+  @override
+  Widget build(BuildContext context) {
+    // Filter separator row
+    final dataLines = lines.where((l) => !_isSeparator(l)).toList();
+    if (dataLines.isEmpty) return const SizedBox.shrink();
+
+    final headerCells = _parseCells(dataLines.first);
+    final bodyLines   = dataLines.length > 1 ? dataLines.sublist(1) : <String>[];
+    final colCount    = headerCells.length;
+
+    TableRow buildRow(List<String> cells, bool isHeader) {
+      return TableRow(
+        children: List.generate(colCount, (j) {
+          final raw       = j < cells.length ? cells[j] : '';
+          final baseStyle = isHeader
+              ? GoogleFonts.poppins(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w600)
+              : GoogleFonts.poppins(fontSize: 13, color: const Color(0xFFCCCCCC));
+          return TableCell(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              color: isHeader ? const Color(0xFF1A1A1A) : null,
+              child: _RichCellContent(cellText: raw, baseStyle: baseStyle),
+            ),
+          );
+        }),
+      );
+    }
+
+    final tableRows = <TableRow>[
+      buildRow(headerCells, true),
+      ...bodyLines.map((l) => buildRow(_parseCells(l), false)),
+    ];
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        border: Border.all(color: const Color(0xFF2A2A2A)),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      clipBehavior: Clip.hardEdge,
+      child: Table(
+        border: TableBorder.all(color: const Color(0xFF2A2A2A), width: 1),
+        defaultColumnWidth: const FlexColumnWidth(),
+        children: tableRows,
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Shared Bubbles
 // ---------------------------------------------------------------------------
 
@@ -1083,6 +1285,62 @@ class _UserBubble extends StatelessWidget {
 class _AiBubble extends StatelessWidget {
   const _AiBubble({required this.text});
   final String text;
+
+  Widget _buildMarkdownStyleSheet(String rawText) {
+    final blocks = _splitBlocks(rawText);
+    if (blocks.length == 1 && blocks.first is _MdText) {
+      return _mdBody((blocks.first as _MdText).text);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: blocks.map((b) {
+        if (b is _MdText)  return _mdBody(b.text);
+        if (b is _MdTable) return _RawTableWidget(lines: b.lines);
+        return const SizedBox.shrink();
+      }).toList(),
+    );
+  }
+
+  Widget _mdBody(String text) => MarkdownBody(
+    data: text, selectable: true, extensionSet: md.ExtensionSet.gitHubWeb,
+    onTapLink: (text, href, title) { if (href != null) launchUrl(Uri.parse(href)); },
+    styleSheet: MarkdownStyleSheet(
+      p        : GoogleFonts.poppins(fontSize: 14, color: Colors.white, height: 1.7),
+      strong   : GoogleFonts.poppins(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w600),
+      em       : GoogleFonts.poppins(fontSize: 14, color: Colors.white, fontStyle: FontStyle.italic),
+      h1       : GoogleFonts.poppins(fontSize: 20, color: Colors.white, fontWeight: FontWeight.w700, height: 1.4),
+      h2       : GoogleFonts.poppins(fontSize: 17, color: Colors.white, fontWeight: FontWeight.w600, height: 1.4),
+      h3       : GoogleFonts.poppins(fontSize: 15, color: Colors.white, fontWeight: FontWeight.w600, height: 1.4),
+      code     : GoogleFonts.sourceCodePro(fontSize: 13, color: const Color(0xFF16DB65), backgroundColor: const Color(0xFF1A2A1A)),
+      codeblockDecoration: BoxDecoration(
+        color: const Color(0xFF0A1A0A), borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF16DB65).withOpacity(0.2)),
+      ),
+      codeblockPadding: const EdgeInsets.all(14),
+      listBullet: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFF16DB65)),
+      listIndent: 20,
+      blockquote: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFFCCCCCC), fontStyle: FontStyle.italic, height: 1.6),
+      blockquoteDecoration: BoxDecoration(
+        border: Border(left: BorderSide(color: const Color(0xFF16DB65).withOpacity(0.5), width: 3)),
+      ),
+      blockquotePadding: const EdgeInsets.only(left: 12),
+      horizontalRuleDecoration: BoxDecoration(
+        border: Border(top: BorderSide(color: const Color(0xFF2A2A2A), width: 1)),
+      ),
+      a                : GoogleFonts.poppins(fontSize: 14, color: const Color(0xFF16DB65), decoration: TextDecoration.underline, decorationColor: const Color(0xFF16DB65).withOpacity(0.5)),
+      tableHead        : GoogleFonts.poppins(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w600),
+      tableBody        : GoogleFonts.poppins(fontSize: 13, color: const Color(0xFFCCCCCC)),
+      tableBorder      : TableBorder.all(color: const Color(0xFF2A2A2A), width: 1),
+      tableHeadAlign   : TextAlign.left,
+      tableCellsPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      pPadding : const EdgeInsets.only(bottom: 8),
+      h1Padding: const EdgeInsets.only(top: 4, bottom: 8),
+      h2Padding: const EdgeInsets.only(top: 4, bottom: 6),
+      h3Padding: const EdgeInsets.only(top: 4, bottom: 4),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1097,44 +1355,7 @@ class _AiBubble extends StatelessWidget {
           ),
           border: Border.all(color: const Color(0xFF1A1A1A)),
         ),
-        child: MarkdownBody(
-          data: text, selectable: true, extensionSet: md.ExtensionSet.gitHubWeb,
-          onTapLink: (text, href, title) { if (href != null) launchUrl(Uri.parse(href)); },
-          styleSheet: MarkdownStyleSheet(
-            p        : GoogleFonts.poppins(fontSize: 14, color: Colors.white, height: 1.7),
-            strong   : GoogleFonts.poppins(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w600),
-            em       : GoogleFonts.poppins(fontSize: 14, color: Colors.white, fontStyle: FontStyle.italic),
-            h1       : GoogleFonts.poppins(fontSize: 20, color: Colors.white, fontWeight: FontWeight.w700, height: 1.4),
-            h2       : GoogleFonts.poppins(fontSize: 17, color: Colors.white, fontWeight: FontWeight.w600, height: 1.4),
-            h3       : GoogleFonts.poppins(fontSize: 15, color: Colors.white, fontWeight: FontWeight.w600, height: 1.4),
-            code     : GoogleFonts.sourceCodePro(fontSize: 13, color: const Color(0xFF16DB65), backgroundColor: const Color(0xFF1A2A1A)),
-            codeblockDecoration: BoxDecoration(
-              color: const Color(0xFF0A1A0A), borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFF16DB65).withOpacity(0.2)),
-            ),
-            codeblockPadding: const EdgeInsets.all(14),
-            listBullet: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFF16DB65)),
-            listIndent: 20,
-            blockquote: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFFCCCCCC), fontStyle: FontStyle.italic, height: 1.6),
-            blockquoteDecoration: BoxDecoration(
-              border: Border(left: BorderSide(color: const Color(0xFF16DB65).withOpacity(0.5), width: 3)),
-            ),
-            blockquotePadding: const EdgeInsets.only(left: 12),
-            horizontalRuleDecoration: BoxDecoration(
-              border: Border(top: BorderSide(color: const Color(0xFF2A2A2A), width: 1)),
-            ),
-            a                : GoogleFonts.poppins(fontSize: 14, color: const Color(0xFF16DB65), decoration: TextDecoration.underline, decorationColor: const Color(0xFF16DB65).withOpacity(0.5)),
-            tableHead        : GoogleFonts.poppins(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w600),
-            tableBody        : GoogleFonts.poppins(fontSize: 13, color: const Color(0xFFCCCCCC)),
-            tableBorder      : TableBorder.all(color: const Color(0xFF2A2A2A), width: 1),
-            tableHeadAlign   : TextAlign.left,
-            tableCellsPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            pPadding : const EdgeInsets.only(bottom: 8),
-            h1Padding: const EdgeInsets.only(top: 4, bottom: 8),
-            h2Padding: const EdgeInsets.only(top: 4, bottom: 6),
-            h3Padding: const EdgeInsets.only(top: 4, bottom: 4),
-          ),
-        ),
+        child: _buildMarkdownStyleSheet(text),
       )),
     ]);
   }

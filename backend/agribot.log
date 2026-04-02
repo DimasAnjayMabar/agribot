@@ -682,3 +682,42 @@
 2026-03-28 12:41:34  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
 2026-03-28 12:41:37  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] Generate — model=openai/gpt-oss-120b  max_tokens=2048  temperature=0.20  top_p=0.95
 2026-03-28 12:41:40  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] ✓ Selesai — 565 chunk  2.167s
+2026-03-31 13:03:38  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-03-31 13:03:38  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-03-31 13:03:38  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-03-31 13:03:38  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(openai/gpt-oss-120b)
+2026-03-31 13:03:38  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-03-31 13:03:54  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (15.72s)
+2026-03-31 13:03:54  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-03-31 13:04:05  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (10.99s)
+2026-03-31 13:04:05  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=openai/gpt-oss-120b
+2026-03-31 13:04:05  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-03-31 13:04:05  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-03-31 13:04:12  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (7.16s)
+2026-03-31 13:04:12  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-03-31 13:04:12  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: E:\proyek magang\chatbot3\chroma_db
+2026-03-31 13:04:24  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-03-31 13:04:24  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-03-31 13:04:24  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-03-31 13:07:59  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Intent] knowledge — kata tanya terdeteksi
+2026-03-31 13:07:59  [36mINFO    [0m  [38;5;245magribot[0m  Intent terdeteksi: knowledge — query='jelaskan tentang penyakit bulai'
+2026-03-31 13:07:59  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-03-31 13:07:59  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Query: 'jelaskan tentang penyakit bulai'
+2026-03-31 13:07:59  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Bahasa terdeteksi: id
+2026-03-31 13:07:59  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [NLP-ID] keywords: tentang penyakit bul
+2026-03-31 13:07:59  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Knowledge] Query diperkaya: 'jelaskan tentang penyakit bulai tentang penyakit bul'
+2026-03-31 13:07:59  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] ChromaDB retrieval (k=30)...
+2026-03-31 13:08:07  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  ChromaDB: 30 kandidat ditemukan (k=30)
+2026-03-31 13:08:07  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] 30 kandidat ditemukan  (8.398s)
+2026-03-31 13:08:07  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] Neo4j enrichment (30 kandidat, window=±3)...
+2026-03-31 13:08:12  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  Neo4j enrich: 30/30 berhasil diperkaya
+2026-03-31 13:08:12  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] 30 chunk diperkaya  (4.816s)
+2026-03-31 13:08:12  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 3] BGE reranking (30 → top 10) @ GPU...
+2026-03-31 13:11:24  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 3] Top 10 dipilih  (192.157s)  skor: min=0.0351  max=0.8099
+2026-03-31 13:11:24  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 4] Filtering: max 5/jurnal → ambil top 5...
+2026-03-31 13:11:24  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 4] Final: 5 chunk dari 2 jurnal
+2026-03-31 13:11:24  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Prompt] lang=id  ctx=19798 char
+2026-03-31 13:11:24  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Pipeline selesai — 205.422s  |  chunks=5  sumber=5
+2026-03-31 13:11:24  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-03-31 13:11:24  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] Generate — model=openai/gpt-oss-120b  max_tokens=2048  temperature=0.20  top_p=0.95
+2026-03-31 13:11:30  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] ✓ Selesai — 909 chunk  5.988s

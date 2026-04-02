@@ -63,20 +63,20 @@ def register(user_input: RegisterSchema, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat registrasi.")
 
 
-@router.post("/register/resend-otp", status_code=status.HTTP_200_OK)
+@router.post("/register/request-otp", status_code=status.HTTP_200_OK)
 def resend_registration_otp(body: RequestOtpSchema, db: Session = Depends(get_db)):
-    logger.debug(f"POST /register/resend-otp → {body.email}")
+    logger.debug(f"POST /register/request-otp → {body.email}")
     try:
-        UserService.resend_registration_otp(db, body.email)
+        UserService.request_registration_otp(db, body.email)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={"success": True, "message": "Jika email terdaftar dan belum terverifikasi, OTP akan dikirimkan."}
         )
     except HTTPException as e:
-        logger.warning(f"POST /register/resend-otp failed → {e.detail}")
+        logger.warning(f"POST /register/request-otp failed → {e.detail}")
         raise e
     except Exception as e:
-        logger.error(f"POST /register/resend-otp error → {e}")
+        logger.error(f"POST /register/request-otp error → {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat mengirim OTP.")
 
 
@@ -206,8 +206,11 @@ def get_active_sessions(
         logger.error(f"GET /sessions error → {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat mengambil daftar session.")
 
+# =============================================================================
+# LOGOUT
+# =============================================================================
 
-@router.post("/sessions/logout-selected", status_code=status.HTTP_200_OK)
+@router.post("/logout/logout-selected", status_code=status.HTTP_200_OK)
 def logout_selected_devices(
     body: BulkLogoutSchema,
     db: Session = Depends(get_db),
@@ -216,7 +219,7 @@ def logout_selected_devices(
     """
     Logout device-device tertentu berdasarkan session_id (bulk select).
     Device saat ini tidak bisa ikut dipilih — gunakan /logout untuk logout sendiri.
-
+    
     Headers:
         Authorization: Bearer <access_token>
     Body:
@@ -239,11 +242,6 @@ def logout_selected_devices(
     except Exception as e:
         logger.error(f"POST /sessions/logout-selected error → {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat logout device.")
-
-
-# =============================================================================
-# LOGOUT
-# =============================================================================
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
 def logout(request: Request, db: Session = Depends(get_db)):
@@ -309,7 +307,7 @@ def logout_other_devices(
 def request_reset_password_otp(body: RequestOtpSchema, db: Session = Depends(get_db)):
     logger.debug(f"POST /reset-password/request-otp → {body.email}")
     try:
-        UserService.request_password_reset_otp(db, body.email)
+        UserService.request_reset_password_otp(db, body.email)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={"success": True, "message": "Jika email terdaftar, OTP akan dikirimkan."}
@@ -325,10 +323,10 @@ def request_reset_password_otp(body: RequestOtpSchema, db: Session = Depends(get
 def verify_reset_password_otp(otp_input: VerifyOtp, db: Session = Depends(get_db)):
     logger.debug(f"POST /reset-password/verify-otp → {otp_input.email}")
     try:
-        reset_token = UserService.verify_reset_otp(db, otp_input)
+        reset_token = UserService.verify_reset_password_otp(db, otp_input)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content={
+            content={   
                 "success": True,
                 "message": "OTP berhasil diverifikasi.",
                 "data": {"reset_token": reset_token}
@@ -340,22 +338,6 @@ def verify_reset_password_otp(otp_input: VerifyOtp, db: Session = Depends(get_db
     except Exception as e:
         logger.error(f"POST /reset-password/verify-otp error → {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat verifikasi OTP.")
-    
-@router.post("/reset-password/resend-otp", status_code=status.HTTP_200_OK)
-def resend_registration_otp(body: RequestOtpSchema, db: Session = Depends(get_db)):
-    logger.debug(f"POST /reset-password/resend-otp → {body.email}")
-    try:
-        UserService.resend_reset_otp(db, body.email)
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"success": True, "message": "Jika email terdaftar dan belum terverifikasi, OTP akan dikirimkan."}
-        )
-    except HTTPException as e:
-        logger.warning(f"POST /reset-password/resend-otp failed → {e.detail}")
-        raise e
-    except Exception as e:
-        logger.error(f"POST /reset-password/resend-otp error → {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Terjadi kesalahan saat mengirim OTP.")
 
 @router.post("/reset-password", status_code=status.HTTP_200_OK)
 def reset_password(reset_input: ResetPasswordSchema, db: Session = Depends(get_db)):

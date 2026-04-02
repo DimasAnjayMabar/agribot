@@ -384,7 +384,7 @@ class UserService:
         return new_user
 
     @staticmethod
-    def resend_registration_otp(db: Session, email: str):
+    def request_registration_otp(db: Session, email: str):
         user = db.query(User).filter(User.email == email).first()
         if not user:
             return True
@@ -651,7 +651,7 @@ class UserService:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def request_password_reset_otp(db: Session, email: str):
+    def request_reset_password_otp(db: Session, email: str):
         user = db.query(User).filter(User.email == email).first()
         if not user:
             return True
@@ -679,7 +679,7 @@ class UserService:
         return True
 
     @staticmethod
-    def verify_reset_otp(db: Session, otp_input: VerifyOtp):
+    def verify_reset_password_otp(db: Session, otp_input: VerifyOtp):
         user = db.query(User).filter(User.email == otp_input.email).first()
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan.")
@@ -703,34 +703,6 @@ class UserService:
 
         logger.info(f"Reset OTP verified → user_id: {user.id}")
         return reset_token
-    
-    @staticmethod
-    def resend_reset_otp(db: Session, email: str):
-        user = db.query(User).filter(User.email == email).first()
-        if not user:
-            return True
-        if user.is_verified:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Akun sudah terverifikasi.")
-
-        last_otp = UserService._get_last_otp(db, OTPResetPassword, user.id)
-        UserService._check_otp_rate_limit(db, OTPResetPassword, user.id, last_otp)
-        UserService._invalidate_previous_otps(db, OTPResetPassword, user.id)
-
-        count_today = UserService._get_otp_count_today(db, OTPResetPassword, user.id)
-        otp_code = UserService._generate_otp()
-        db.add(OTPResetPassword(
-            user_id=user.id,
-            otp=otp_code,
-            otp_expires_at=datetime.utcnow() + timedelta(minutes=OTP_EXPIRES_MINUTES),
-            request_count_today=count_today + 1,
-        ))
-        db.commit()
-
-        sent = UserService._send_otp_email(user.email, user.name, otp_code, "reset_password")
-        if not sent:
-            logger.warning(f"Resend registration OTP gagal → user_id: {user.id}")
-
-        return True
 
     @staticmethod
     def reset_password(db: Session, reset_input: ResetPasswordSchema):

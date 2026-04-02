@@ -119,7 +119,7 @@ class _ForgotPasswordVerifyOtpPageState
     setState(() => _isResending = true);
     try {
       await _dio.post(
-        '/users/forgot-password',
+        '/users/reset-password/request-otp',
         data: {'email': widget.email},
       );
       if (mounted) {
