@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# CONSTANTS
+# =============================================================================
+
+
+# =============================================================================
 # IN-MEMORY EVENT STORE
 # =============================================================================
 # Menyimpan asyncio.Event per detail_id.
@@ -63,16 +68,18 @@ def _cleanup_event(detail_id: int) -> None:
 # HELPER — LLM
 # =============================================================================
 
-def _call_llm(question: str) -> dict:
+def _call_llm(question: str, chat_id: int) -> dict:
     """
     Panggil RAG pipeline dan kumpulkan token streaming jadi satu string.
+    chat_id diteruskan ke pipeline agar memory summary bisa di-inject
+    ke prompt sebelum LLM generate.
     Return dict berisi response, token counts, latency.
     """
     start    = time.time()
     pipeline = get_rag_pipeline()
 
     full_response = ""
-    rag_response  = pipeline.process_query(question)
+    rag_response  = pipeline.process_query(question, chat_id=chat_id)
 
     for token in rag_response.answer:
         full_response += token
@@ -116,9 +123,9 @@ def _save_pipeline_log(
     return log
 
 
-def _invoke_llm_safe(question: str, context: str) -> tuple[dict, str, str | None]:
+def _invoke_llm_safe(question: str, chat_id: int, context: str) -> tuple[dict, str, str | None]:
     try:
-        result = _call_llm(question)
+        result = _call_llm(question, chat_id=chat_id)
         return result, "success", None
     except Exception as exc:
         logger.error(f"LLM call failed — {context}: {exc}")
@@ -132,21 +139,138 @@ def _invoke_llm_safe(question: str, context: str) -> tuple[dict, str, str | None
 
 
 # =============================================================================
+# BACKGROUND TASK — Memory Worker (Snowball)
+# =============================================================================
+
+def _delete_memory_by_chat(chat_id: int) -> None:
+    """
+    Hapus semua entry memory di ChromaDB untuk chat_id tertentu.
+    Mencakup dua jenis entry:
+      - summary_{chat_id}        → running summary
+      - recent_{chat_id}_*       → semua entry episodik (recent window)
+
+    Dipanggil oleh delete_topic sebelum menghapus Chat dari SQL.
+    Berjalan di thread pemanggil (bukan daemon) karena harus selesai
+    sebelum SQL commit — urutan penting untuk konsistensi data.
+    """
+    try:
+        pipeline  = get_rag_pipeline()
+        collection = pipeline.chroma.client.get_or_create_collection("chat_memory")
+
+        # ── Hapus running summary ─────────────────────────────────────────────
+        try:
+            collection.delete(ids=[f"summary_{chat_id}"])
+            logger.info(f"[MemoryDelete] Summary dihapus → chat_id={chat_id}")
+        except Exception:
+            # Belum ada summary — tidak masalah
+            logger.debug(f"[MemoryDelete] Tidak ada summary untuk chat_id={chat_id}")
+
+        # ── Hapus semua recent entries ────────────────────────────────────────
+        try:
+            # Filter by id prefix — lebih reliable daripada where filter
+            all_results = collection.get(include=[])
+            prefix      = f"recent_{chat_id}_"
+            ids_to_delete = [
+                doc_id for doc_id in all_results["ids"]
+                if doc_id.startswith(prefix)
+            ]
+            if ids_to_delete:
+                collection.delete(ids=ids_to_delete)
+                logger.info(
+                    f"[MemoryDelete] {len(ids_to_delete)} recent entries dihapus "
+                    f"→ chat_id={chat_id}"
+                )
+            else:
+                logger.debug(
+                    f"[MemoryDelete] Tidak ada recent entries untuk chat_id={chat_id}"
+                )
+        except Exception:
+            logger.debug(
+                f"[MemoryDelete] Tidak ada recent entries untuk chat_id={chat_id}"
+            )
+
+    except Exception as exc:
+        # Memory delete gagal tidak boleh menghentikan delete topic
+        # — log saja, lanjutkan proses
+        logger.error(
+            f"[MemoryDelete] Gagal hapus memory chat_id={chat_id}: {exc}",
+            exc_info=True,
+        )
+
+
+def _delete_memory_entry(chat_id: int, detail_id: int) -> None:
+    """
+    Hapus satu entry recent dari ChromaDB untuk detail_id tertentu.
+
+    Dipanggil oleh delete_message. Summary tidak disentuh — menghapus
+    satu pesan tidak perlu merecalculate seluruh ringkasan.
+    """
+    try:
+        pipeline   = get_rag_pipeline()
+        collection = pipeline.chroma.client.get_or_create_collection("chat_memory")
+        collection.delete(ids=[f"recent_{chat_id}_{detail_id}"])
+        logger.info(
+            f"[MemoryDelete] Recent entry dihapus → "
+            f"chat_id={chat_id}  detail_id={detail_id}"
+        )
+    except Exception as exc:
+        logger.error(
+            f"[MemoryDelete] Gagal hapus recent entry "
+            f"chat_id={chat_id}  detail_id={detail_id}: {exc}",
+            exc_info=True,
+        )
+
+
+def _save_memory_entry(chat_id: int, detail_id: int, question: str, answer: str) -> None:
+    """
+    Simpan satu Q&A pair ke ChromaDB 'chat_memory' sebagai entry episodik.
+
+    Dipanggil oleh _rag_worker setelah response berhasil di-commit ke DB.
+    Berjalan di thread daemon terpisah agar tidak memblokir sinyal SSE.
+
+    Setiap entry disimpan dengan id unik 'memory_{chat_id}_{detail_id}'
+    sehingga seluruh riwayat percakapan tetap utuh. Saat query baru masuk,
+    pipeline.get_memory() melakukan similarity search dan hanya mengambil
+    entry yang paling relevan dengan query tersebut.
+    """
+    try:
+        pipeline = get_rag_pipeline()
+        pipeline.save_memory(chat_id, detail_id, question, answer)
+        logger.info(
+            f"[MemorySave] Selesai → chat_id={chat_id}  detail_id={detail_id}"
+        )
+    except Exception as exc:
+        logger.error(
+            f"[MemorySave] Error — chat_id={chat_id}  detail_id={detail_id}: {exc}",
+            exc_info=True,
+        )
+
+
+# =============================================================================
 # BACKGROUND TASK — RAG Worker
 # =============================================================================
 
-def _rag_worker(detail_id: int, question: str, db_factory) -> None:
+def _rag_worker(detail_id: int, question: str, chat_id: int, db_factory) -> None:
     """
     Dijalankan di thread terpisah.
-    1. Panggil RAG pipeline
+    1. Panggil RAG pipeline (dengan chat_id untuk memory inject)
     2. Update ChatDetail.response + processing_status di DB
     3. Simpan PipelineLog
     4. Signal asyncio.Event agar SSE endpoint tahu hasilnya sudah siap
+    5. Spawn _save_memory_entry untuk simpan Q&A pair ke ChromaDB (non-blocking)
+
+    Urutan penting:
+      - _signal_done dipanggil di finally → SSE selalu mendapat sinyal
+        meski terjadi error di langkah sebelumnya
+      - _save_memory_entry di-spawn SETELAH commit + signal, sehingga
+        tidak memperlambat respons ke frontend sama sekali
     """
     db: Session = db_factory()
     try:
         llm_result, llm_status, error_msg = _invoke_llm_safe(
-            question, context=f"bg_detail_id={detail_id}"
+            question,
+            chat_id=chat_id,
+            context=f"bg_detail_id={detail_id}",
         )
 
         detail = db.query(ChatDetail).filter(ChatDetail.id == detail_id).first()
@@ -168,9 +292,26 @@ def _rag_worker(detail_id: int, question: str, db_factory) -> None:
 
         db.commit()
         logger.info(
-            f"RAG worker selesai → detail_id={detail_id}, "
-            f"status={detail.processing_status}"
+            f"RAG worker selesai → detail_id={detail_id}  "
+            f"chat_id={chat_id}  status={detail.processing_status}"
         )
+
+        # ── Spawn memory save jika response berhasil ──────────────────────────
+        # Hanya simpan jika LLM sukses — response 'failed' adalah pesan error,
+        # bukan jawaban nyata, tidak perlu masuk ke memori.
+        if llm_status == "success":
+            m = threading.Thread(
+                target=_save_memory_entry,
+                args=(chat_id, detail_id, question, llm_result["response"]),
+                daemon=True,
+                name=f"memory-save-{chat_id}-{detail_id}",
+            )
+            m.start()
+            logger.info(
+                f"Memory save spawned → chat_id={chat_id}  "
+                f"detail_id={detail_id}  thread={m.name}"
+            )
+
     except Exception as exc:
         logger.error(f"RAG worker error — detail_id={detail_id}: {exc}")
         try:
@@ -244,6 +385,11 @@ class ChatService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Chat tidak ditemukan.",
             )
+
+        # Hapus memory ChromaDB lebih dulu sebelum SQL commit
+        # — urutan penting agar tidak ada orphan memory jika SQL gagal
+        _delete_memory_by_chat(chat_id)
+
         db.delete(chat)
         db.commit()
         logger.info(f"Topic deleted → chat_id={chat_id}")
@@ -276,11 +422,18 @@ class ChatService:
         user_id:     int,
         chat_id:     int | None,
         question:    str,
-        db_factory,          # callable → Session baru untuk background thread
+        db_factory,
     ) -> ChatDetail:
         """
-        Versi baru: langsung return ChatDetail dengan processing_status='pending'.
-        RAG dijalankan di background thread — tidak blocking HTTP response.
+        Kirim pertanyaan ke RAG pipeline secara async.
+        Langsung return ChatDetail dengan processing_status='pending'.
+
+        Alur:
+          1. Resolve atau buat topic baru (jika chat_id=None)
+          2. Buat ChatDetail + PipelineLog placeholder
+          3. Siapkan asyncio.Event untuk SSE
+          4. Spawn _rag_worker (thread daemon) dengan chat_id
+          5. Return detail — frontend polling via SSE
 
         db_factory diperlukan karena SQLAlchemy Session tidak thread-safe.
         Background thread membuat Session sendiri via db_factory().
@@ -308,16 +461,16 @@ class ChatService:
                     detail="Chat tidak ditemukan.",
                 )
 
-        # ── Buat ChatDetail dengan status pending — response kosong dulu ──────
+        # ── Buat ChatDetail dengan status pending ─────────────────────────────
         detail = ChatDetail(
             chat_id           = chat.id,
             question          = question.strip(),
-            response          = "",           # diisi oleh background task
+            response          = "",
             processing_status = "pending",
             created_at        = datetime.utcnow(),
         )
         db.add(detail)
-        db.flush()  # dapatkan detail.id
+        db.flush()
 
         # ── Buat PipelineLog placeholder ──────────────────────────────────────
         placeholder_log = PipelineLog(
@@ -334,20 +487,19 @@ class ChatService:
         db.refresh(detail)
 
         # ── Siapkan event SEBELUM spawn thread ────────────────────────────────
-        # Penting: event harus ada sebelum worker memanggil _signal_done
         _get_or_create_event(detail.id)
 
-        # ── Spawn background thread untuk RAG ─────────────────────────────────
+        # ── Spawn RAG worker dengan chat_id ───────────────────────────────────
         t = threading.Thread(
             target=_rag_worker,
-            args=(detail.id, question.strip(), db_factory),
+            args=(detail.id, question.strip(), chat.id, db_factory),
             daemon=True,
             name=f"rag-worker-{detail.id}",
         )
         t.start()
         logger.info(
-            f"Background RAG dimulai → detail_id={detail.id}, "
-            f"chat_id={chat.id}, thread={t.name}"
+            f"Background RAG dimulai → detail_id={detail.id}  "
+            f"chat_id={chat.id}  thread={t.name}"
         )
 
         return detail
@@ -378,6 +530,7 @@ class ChatService:
     ) -> ChatDetail:
         """
         Edit pertanyaan → jalankan ulang RAG di background.
+        Memory yang dipakai tetap memory chat yang sama (chat_id tidak berubah).
         Langsung return detail dengan status 'pending'.
         """
         detail = (
@@ -392,6 +545,8 @@ class ChatService:
                 detail="Pesan tidak ditemukan.",
             )
 
+        chat_id = detail.chat_id  # simpan sebelum modifikasi
+
         detail.question           = new_question.strip()
         detail.response           = ""
         detail.processing_status  = "pending"
@@ -402,7 +557,7 @@ class ChatService:
 
         t = threading.Thread(
             target=_rag_worker,
-            args=(detail.id, new_question.strip(), db_factory),
+            args=(detail.id, new_question.strip(), chat_id, db_factory),
             daemon=True,
             name=f"rag-edit-{detail.id}",
         )
@@ -416,7 +571,10 @@ class ChatService:
         detail_id: int,
         db_factory,
     ) -> ChatDetail:
-        """Regenerate → jalankan ulang RAG di background dengan question sama."""
+        """
+        Regenerate → jalankan ulang RAG di background dengan question sama.
+        Memory yang dipakai tetap memory chat yang sama (chat_id tidak berubah).
+        """
         detail = (
             db.query(ChatDetail)
             .join(Chat)
@@ -429,7 +587,9 @@ class ChatService:
                 detail="Pesan tidak ditemukan.",
             )
 
-        question                  = detail.question
+        chat_id  = detail.chat_id  # simpan sebelum modifikasi
+        question = detail.question
+
         detail.response           = ""
         detail.processing_status  = "pending"
         db.commit()
@@ -439,7 +599,7 @@ class ChatService:
 
         t = threading.Thread(
             target=_rag_worker,
-            args=(detail.id, question, db_factory),
+            args=(detail.id, question, chat_id, db_factory),
             daemon=True,
             name=f"rag-regen-{detail.id}",
         )
@@ -459,7 +619,15 @@ class ChatService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Pesan tidak ditemukan.",
             )
+
+        chat_id = detail.chat_id  # simpan sebelum delete
+
         db.delete(detail)
         db.commit()
-        logger.info(f"Message deleted → detail_id={detail_id}")
+        logger.info(f"Message deleted → detail_id={detail_id}  chat_id={chat_id}")
+
+        # Hapus recent entry dari ChromaDB setelah SQL commit berhasil
+        # Summary tidak disentuh — satu pesan dihapus tidak perlu recalculate ringkasan
+        _delete_memory_entry(chat_id, detail_id)
+
         return True
