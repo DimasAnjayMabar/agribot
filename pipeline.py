@@ -1,6 +1,5 @@
-# backend.py
 """
-RAG Pipeline — Struktur Baru
+RAG Pipeline — Struktur Baru + Memory System
 =============================
 Alur kerja:
   1. ChromaDB  → Wide retrieval dari collection 'konten_isi'
@@ -12,7 +11,23 @@ Alur kerja:
   3. Reranking → BGE cross-encoder (CPU) menghitung skor relevansi
                  teks gabungan (prev + target + next) vs query
   4. Filtering → top-N + diversifikasi sumber (max N chunk per jurnal)
-  5. LLM       → Groq API (openai/gpt-oss-120b) via streaming SSE
+  5. Memory    → Ambil memory summary dari ChromaDB (collection 'chat_memory')
+                 jika ada, inject ke system prompt sebelum LLM
+  6. LLM       → Groq API (openai/gpt-oss-120b) via streaming SSE
+
+Memory System:
+  - Disimpan di ChromaDB collection 'chat_memory' terpisah dari 'konten_isi'
+  - Satu dokumen per Q&A pair, id unik = 'memory_{chat_id}_{detail_id}'
+  - Disimpan oleh _save_memory_entry di service/chats.py setelah setiap response
+  - Pipeline membaca memory via similarity search (get_memory) — hanya dari chat_id yang sama
+
+Identity System:
+  - Disimpan di ChromaDB collection 'user_identity' terpisah dari 'chat_memory'
+  - Satu dokumen per user, id unik = 'identity_{user_id}'
+  - Disimpan oleh save_identity() (dipanggil dari chats.py saat _rag_worker)
+  - Pipeline membaca identity via get_identity() dan menggabungkannya ke blok
+    memory sebelum diinjek ke prompt — nama user TIDAK pernah masuk base prompt
+  - Identity persisten lintas topic — tidak ikut terhapus saat topic dihapus
 
 Hardware: Core 5 210H · 16 GB RAM · RTX 5050 8 GB VRAM
   - Embedding  → GPU/CPU  (multilingual-e5-large  ~560 MB RAM)
@@ -42,6 +57,8 @@ from transformers import (
     AutoTokenizer,
     pipeline as hf_pipeline,
 )
+
+from config import CONFIG, PROMPTS
 
 load_dotenv()
 
@@ -103,67 +120,7 @@ def _setup_logger() -> logging.Logger:
 log = _setup_logger()
 
 
-############################################################
-# KONFIGURASI
-############################################################
 
-CONFIG = {
-    # ── Model paths ──────────────────────────────────────────────────────────
-    "embedding_model":   "intfloat/multilingual-e5-large",
-    "reranker_model":    "BAAI/bge-reranker-v2-m3",
-
-    # ── NLP Models (NER / token classification) ───────────────────────────────
-    # IndoBERT — digunakan untuk query berbahasa Indonesia
-    "nlp_id_model":      "indobenchmark/indobert-base-p1",
-    # BERT multilingual — digunakan untuk query berbahasa Inggris
-    "nlp_en_model":      "dslim/bert-base-NER",
-    "nlp_device":        0 if torch.cuda.is_available() else -1,  # 0=GPU, -1=CPU
-
-    # ── Hardware placement ────────────────────────────────────────────────────
-    # LLM sekarang di Groq API → VRAM bebas penuh untuk embedding & reranker
-    "embedding_device":  "cuda" if torch.cuda.is_available() else "cpu",
-    "reranker_device":   "cuda" if torch.cuda.is_available() else "cpu",
-
-    # ── Groq API ──────────────────────────────────────────────────────────────
-    "groq_model":        "openai/gpt-oss-120b",  # model via Groq
-    # GROQ_API_KEY dibaca dari environment variable — tidak di-hardcode di sini
-
-    # ── ChromaDB — satu collection sesuai embedder baru ───────────────────────
-    "chroma_path":       os.path.join(os.path.dirname(os.path.abspath(__file__)), "chroma_db"),
-    "chroma_collection": "konten_isi",
-
-    # ── Neo4j ─────────────────────────────────────────────────────────────────
-    "neo4j_uri":         "neo4j://127.0.0.1:7687",
-    "neo4j_user":        "neo4j",
-    "neo4j_password":    "password",
-
-    # ── Pipeline parameters ───────────────────────────────────────────────────
-
-    # Tahap 1: berapa kandidat diambil dari ChromaDB
-    "chroma_retrieval_k":    30,
-
-    # Tahap 2: seberapa jauh window PREVIOUS/NEXT di Neo4j (1 = ±1 chunk)
-    "context_window":        3,
-
-    # Tahap 3: berapa kandidat diambil setelah reranking
-    "reranked_k":            10,
-
-    # Tahap 4: diversifikasi sumber
-    "max_chunks_per_jurnal": 5,   # maksimal chunk dari satu jurnal di konteks akhir
-    "final_context_k":       5,   # jumlah chunk yang masuk ke prompt LLM
-
-    # ── LLM generation — RAG pipeline (knowledge query) ─────────────────────
-    "max_new_tokens":        2048,
-    "temperature":           0.2,    # rendah → faktual, deterministik
-    "top_p":                 0.95,
-    # Batas karakter konteks di prompt — Groq mendukung context window besar
-    "context_max_chars":     24_000,  # ~6000 token × 4 char/token
-
-    # ── LLM generation — Social pipeline (social chat) ───────────────────────
-    "social_max_new_tokens": 512,    # respons sosial cukup singkat
-    "social_temperature":    0.8,    # lebih tinggi → variasi & natural
-    "social_top_p":          0.95,
-}
 
 ############################################################
 # DATA STRUCTURES
@@ -673,7 +630,13 @@ class RAGPipeline:
       Tahap 2: Neo4j enrich        temperature=0.8 (natural)
       Tahap 3: BGE reranking       max_new_tokens=128
       Tahap 4: Filtering
-      Tahap 5: LLM (temp=0.2)
+      Tahap 5: Memory inject (jika ada)
+      Tahap 6: LLM (temp=0.2)
+
+    Memory System:
+      - get_memory(chat_id, query) → similarity search Q&A pairs dari ChromaDB 'chat_memory'
+      - save_memory(chat_id, detail_id, question, answer) → simpan Q&A pair baru
+      Keduanya dipanggil dari service/chats.py — save via _save_memory_entry (thread daemon).
     """
 
     def __init__(self):
@@ -691,7 +654,9 @@ class RAGPipeline:
     def process_query(
         self,
         query:      str,
+        chat_id:    int | None = None,
         stop_event: threading.Event = None,
+        user_id:    int | None = None,
     ) -> RAGResponse:
         """
         Entry point utama. Deteksi intent lalu delegasikan ke pipeline
@@ -700,6 +665,15 @@ class RAGPipeline:
 
         Sebelum deteksi intent, query Bahasa Indonesia dikoreksi typo-nya
         terlebih dahulu menggunakan IndoBERT MLM (fill-mask).
+
+        chat_id (opsional): diteruskan ke kedua pipeline untuk membaca
+        dan menyimpan memory. Social pipeline menggunakan memory untuk
+        mengingat informasi personal (nama, preferensi, dll).
+
+        user_id (opsional): id user yang sedang login. Digunakan untuk
+        mengambil identitas (nama, dll.) dari ChromaDB collection
+        'user_identity'. Identitas digabung ke blok memory — TIDAK
+        diinjek langsung ke base prompt.
         """
         # ── Koreksi typo via IndoBERT MLM (hanya untuk query Bahasa Indonesia) ─
         lang_pre = self._detect_language(query)
@@ -710,15 +684,347 @@ class RAGPipeline:
         log.info("Intent terdeteksi: %s — query=%r", intent, query[:80])
 
         if intent == "social":
-            return self.process_social_query(query, stop_event=stop_event)
-        return self.process_knowledge_query(query, stop_event=stop_event)
+            return self.process_social_query(query, chat_id=chat_id, stop_event=stop_event, user_id=user_id)
+        return self.process_knowledge_query(query, chat_id=chat_id, stop_event=stop_event, user_id=user_id)
+
+    # ── Memory System ─────────────────────────────────────────────────────────
+
+    def get_memory(self, chat_id: int, query: str, user_id: int | None = None) -> str | None:
+        """
+        Ambil hybrid memory dari ChromaDB collection 'chat_memory',
+        dan gabungkan dengan identitas user dari collection 'user_identity'
+        jika user_id disediakan.
+
+        Tiga blok digabungkan (jika tersedia):
+          0. Identitas user (identity_{user_id}) — dari collection terpisah.
+             Berisi nama user dan informasi persisten lintas topic.
+
+          1. Running summary (summary_{chat_id}) — konteks jangka panjang.
+             Berisi topik-topik yang sudah dibahas dan ringkasan percakapan.
+
+          2. Recent window (recent_{chat_id}_*) — N entry Q&A terbaru,
+             diambil kronologis TANPA similarity search. Menjawab pertanyaan
+             referensial temporal seperti "barusan", "tadi", "sebelumnya".
+
+        query tidak dipakai untuk filtering — disertakan hanya untuk
+        kompatibilitas signature dengan pemanggil di process_*_query.
+        """
+        try:
+            collection = self.chroma.client.get_or_create_collection(
+                CONFIG["memory_collection"]
+            )
+
+            # ── Blok 0: Identitas user dari collection 'user_identity' ────────
+            identity: str = ""
+            if user_id is not None:
+                identity = self.get_identity(user_id) or ""
+
+            # ── Blok 1: Running summary ───────────────────────────────────────
+            summary: str = ""
+            try:
+                result = collection.get(
+                    ids=[f"summary_{chat_id}"],
+                    include=["documents"],
+                )
+                if result["ids"]:
+                    summary = result["documents"][0]
+                    log.info(
+                        "[Memory] Summary ditemukan chat_id=%d  (%d char)",
+                        chat_id, len(summary),
+                    )
+            except Exception:
+                log.debug("[Memory] Belum ada summary untuk chat_id=%d", chat_id)
+
+            # ── Blok 2: Recent window — N entry terbaru secara kronologis ─────
+            # Filter by id prefix 'recent_{chat_id}_' — lebih reliable daripada
+            # where filter karena tidak bergantung pada tipe data metadata di ChromaDB.
+            recent_text: str = ""
+            try:
+                # Ambil semua entry di collection, lalu filter manual by id prefix
+                # Ini menghindari masalah ChromaDB where filter dengan $and operator
+                # dan inkonsistensi tipe int vs string pada metadata chat_id
+                all_results = collection.get(include=["documents", "metadatas"])
+
+                prefix = f"recent_{chat_id}_"
+                matched_ids  = []
+                matched_docs = []
+                matched_meta = []
+
+                for i, doc_id in enumerate(all_results["ids"]):
+                    if doc_id.startswith(prefix):
+                        matched_ids.append(doc_id)
+                        matched_docs.append(all_results["documents"][i])
+                        matched_meta.append(all_results["metadatas"][i])
+
+                if matched_ids:
+                    # Urutkan berdasarkan timestamp ascending (terlama ke terbaru)
+                    entries = sorted(
+                        zip(matched_docs, matched_meta),
+                        key=lambda x: x[1].get("timestamp", 0),
+                    )
+
+                    # Ambil N terbaru sesuai config
+                    n = CONFIG["memory_recent_window"]
+                    entries = entries[-n:]
+
+                    lines = [doc for doc, _ in entries]
+                    recent_text = "\n\n".join(lines)
+                    log.info(
+                        "[Memory] Recent window: %d entry (dari %d total) chat_id=%d",
+                        len(entries), len(matched_ids), chat_id,
+                    )
+                else:
+                    log.debug(
+                        "[Memory] Belum ada recent entries untuk chat_id=%d", chat_id
+                    )
+
+            except Exception:
+                log.debug(
+                    "[Memory] Gagal ambil recent entries untuk chat_id=%d", chat_id,
+                    exc_info=True,
+                )
+
+            # ── Gabungkan tiga blok ───────────────────────────────────────────
+            if not identity and not summary and not recent_text:
+                log.debug("[Memory] Tidak ada memory untuk chat_id=%d", chat_id)
+                return None
+
+            parts = []
+            if identity:
+                parts.append(f"### IDENTITAS PENGGUNA ###\n{identity}")
+            if summary:
+                parts.append(f"### RINGKASAN SESI ###\n{summary}")
+            if recent_text:
+                parts.append(f"### PERCAKAPAN TERAKHIR ###\n{recent_text}")
+
+            combined = "\n\n".join(parts)
+            log.info(
+                "[Memory] Hybrid memory siap — chat_id=%d  (%d char)",
+                chat_id, len(combined),
+            )
+            return combined
+
+        except Exception:
+            log.warning(
+                "[Memory] Gagal mengambil memory chat_id=%d", chat_id,
+                exc_info=False,
+            )
+            return None
+
+    def get_identity(self, user_id: int) -> str | None:
+        """
+        Ambil identitas user dari ChromaDB collection 'user_identity'.
+
+        Identitas berisi informasi persisten tentang user seperti nama
+        yang disimpan saat pertama kali chat. Berbeda dari chat_memory
+        yang terikat per chat_id, identity terikat per user_id sehingga
+        persisten lintas semua topic dan tidak ikut terhapus saat topic
+        dihapus.
+
+        Return: string teks identitas, atau None jika belum ada.
+        """
+        try:
+            collection = self.chroma.client.get_or_create_collection(
+                CONFIG["identity_collection"]
+            )
+            result = collection.get(
+                ids=[f"identity_{user_id}"],
+                include=["documents"],
+            )
+            if result["ids"]:
+                identity_text = result["documents"][0]
+                log.info(
+                    "[Identity] Ditemukan user_id=%d  (%d char)",
+                    user_id, len(identity_text),
+                )
+                return identity_text
+            log.debug("[Identity] Belum ada identitas untuk user_id=%d", user_id)
+            return None
+        except Exception:
+            log.warning(
+                "[Identity] Gagal mengambil identitas user_id=%d", user_id,
+                exc_info=False,
+            )
+            return None
+
+    def save_identity(self, user_id: int, user_name: str) -> None:
+        """
+        Simpan atau perbarui identitas user di ChromaDB collection 'user_identity'.
+
+        Dipanggil dari chats.py (_rag_worker) setiap kali chat diproses,
+        sehingga jika nama user berubah di tabel users, identity di ChromaDB
+        ikut diperbarui. Operasi upsert — aman dipanggil berulang kali.
+
+        Format dokumen yang disimpan:
+          "Nama pengguna: {user_name}"
+        Format ini sengaja dibuat singkat dan mudah diparsing oleh LLM
+        ketika dibaca sebagai bagian dari blok memory.
+
+        user_id   : id integer dari tabel users (kunci lookup)
+        user_name : nama lengkap user dari tabel users
+        """
+        if not user_name or not user_name.strip():
+            log.debug("[Identity] user_name kosong — skip save user_id=%d", user_id)
+            return
+        try:
+            collection = self.chroma.client.get_or_create_collection(
+                CONFIG["identity_collection"]
+            )
+            identity_text = f"Nama pengguna: {user_name.strip()}"
+            identity_embedding = self.models.get_embedding(identity_text)
+            collection.upsert(
+                ids=[f"identity_{user_id}"],
+                documents=[identity_text],
+                embeddings=[identity_embedding],
+                metadatas=[{
+                    "user_id":    user_id,
+                    "user_name":  user_name.strip(),
+                    "updated_at": int(time.time()),
+                }],
+            )
+            log.info(
+                "[Identity] Disimpan → user_id=%d  user_name=%r",
+                user_id, user_name,
+            )
+        except Exception:
+            log.exception(
+                "[Identity] Gagal menyimpan identitas user_id=%d", user_id
+            )
+
+    def save_memory(self, chat_id: int, detail_id: int, question: str, answer: str) -> None:
+        """
+        Simpan memory hybrid ke ChromaDB collection 'chat_memory'.
+
+        Dua operasi dijalankan dalam satu pemanggilan:
+
+          1. Update running summary (id tetap 'summary_{chat_id}').
+             Summary lama + Q&A baru dirangkum ulang oleh LLM.
+             Instruksi prioritas memaksa topik utama tidak pernah dihapus
+             meski terjadi kompresi.
+
+          2. Simpan entry episodik baru (id 'recent_{chat_id}_{detail_id}').
+             Format teks: "User: ...\nAgribot: ..."
+             Metadata: chat_id, detail_id, timestamp, type='recent'
+             Dipakai oleh get_memory() sebagai recent window kronologis.
+
+        Dipanggil oleh chats.py setelah response berhasil di-commit ke DB.
+        Identitas user (nama dll.) TIDAK disimpan di sini — gunakan
+        save_identity() secara terpisah di collection 'user_identity'.
+        """
+        if not answer or not answer.strip():
+            log.warning(
+                "[Memory] Answer kosong — skip save chat_id=%d detail_id=%d",
+                chat_id, detail_id,
+            )
+            return
+
+        try:
+            collection = self.chroma.client.get_or_create_collection(
+                CONFIG["memory_collection"]
+            )
+
+            # ══════════════════════════════════════════════════════════════════
+            # BAGIAN 1 — Update running summary
+            # ══════════════════════════════════════════════════════════════════
+
+            # ── Ambil summary lama jika ada ───────────────────────────────────
+            previous_summary: str = ""
+            try:
+                existing = collection.get(
+                    ids=[f"summary_{chat_id}"],
+                    include=["documents"],
+                )
+                if existing["ids"]:
+                    previous_summary = existing["documents"][0]
+            except Exception:
+                pass  # Belum ada summary — mulai dari kosong
+
+            max_words = CONFIG["memory_summary_max_words"]
+
+            # ── Bangun prompt summarizer dari PROMPTS ─────────────────────────
+            if previous_summary:
+                summary_prompt = PROMPTS["memory_summary_update"].format(
+                    max_words=max_words,
+                    previous_summary=previous_summary,
+                    question=question.strip(),
+                    answer=answer.strip(),
+                )
+            else:
+                summary_prompt = PROMPTS["memory_summary_new"].format(
+                    max_words=max_words,
+                    question=question.strip(),
+                    answer=answer.strip(),
+                )
+
+            # ── Panggil LLM untuk summarization ──────────────────────────────
+            log.info(
+                "[Memory] Merangkum summary baru — chat_id=%d  detail_id=%d  "
+                "prev_summary=%d char",
+                chat_id, detail_id, len(previous_summary),
+            )
+            summary_response = self.models.groq_client.chat.completions.create(
+                model=CONFIG["memory_summary_model"],
+                messages=[{"role": "user", "content": summary_prompt}],
+                max_tokens=CONFIG["memory_summary_max_tokens"],
+                temperature=0.3,
+            )
+            new_summary = summary_response.choices[0].message.content.strip()
+
+            # ── Upsert summary ke ChromaDB (overwrite entry lama) ─────────────
+            summary_embedding = self.models.get_embedding(new_summary)
+            collection.upsert(
+                ids=[f"summary_{chat_id}"],
+                documents=[new_summary],
+                embeddings=[summary_embedding],
+                metadatas=[{
+                    "type":           "summary",
+                    "chat_id":        chat_id,
+                    "last_detail_id": detail_id,
+                }],
+            )
+            log.info(
+                "[Memory] Summary diperbarui → chat_id=%d  detail_id=%d  (%d char)",
+                chat_id, detail_id, len(new_summary),
+            )
+
+            # ══════════════════════════════════════════════════════════════════
+            # BAGIAN 2 — Simpan entry episodik (recent window)
+            # ══════════════════════════════════════════════════════════════════
+            recent_doc = (
+                f"User: {question.strip()}\n"
+                f"Agribot: {answer.strip()}"
+            )
+            recent_embedding = self.models.get_embedding(recent_doc)
+            collection.upsert(
+                ids=[f"recent_{chat_id}_{detail_id}"],
+                documents=[recent_doc],
+                embeddings=[recent_embedding],
+                metadatas=[{
+                    "type":      "recent",
+                    "chat_id":   chat_id,
+                    "detail_id": detail_id,
+                    "timestamp": int(time.time()),
+                }],
+            )
+            log.info(
+                "[Memory] Recent entry disimpan → chat_id=%d  detail_id=%d",
+                chat_id, detail_id,
+            )
+
+        except Exception:
+            log.exception(
+                "[Memory] Gagal update memory chat_id=%d detail_id=%d",
+                chat_id, detail_id,
+            )
 
     # ── Social Pipeline ───────────────────────────────────────────────────────
 
     def process_social_query(
         self,
         query:      str,
+        chat_id:    int | None = None,
         stop_event: threading.Event = None,
+        user_id:    int | None = None,
     ) -> RAGResponse:
         """
         Pipeline social — pure LLM dengan few-shot prompting via Groq API.
@@ -726,43 +1032,47 @@ class RAGPipeline:
         Menggunakan format messages OpenAI-style dengan system role
         yang berisi persona + few-shot examples, sehingga model langsung
         tahu pola output yang diharapkan.
+
+        chat_id (opsional): jika ada, memory episodik diambil via similarity
+        search dan diinjekt ke system prompt — memungkinkan bot mengingat
+        informasi personal seperti nama pengguna antar pesan.
+
+        user_id (opsional): digunakan oleh get_memory() untuk menyertakan
+        blok identitas user (dari collection 'user_identity') ke dalam memory.
+        Nama user TIDAK diinjek ke base prompt — hanya lewat memory.
         """
         t_start = time.perf_counter()
         lang    = self._detect_language(query)
 
+        # ── Ambil memory + identitas user jika tersedia ───────────────────────
+        # get_memory() akan menggabungkan identity (user_identity) +
+        # running summary + recent window menjadi satu blok memory.
+        memory_text: str | None = None
+        if chat_id is not None:
+            memory_text = self.get_memory(chat_id, query, user_id=user_id)
+            if memory_text:
+                log.info("[Social] Memory ditemukan (%d char)", len(memory_text))
+            else:
+                log.debug("[Social] Belum ada memory untuk chat_id=%d", chat_id)
+
+        # ── Bangun blok memory dari PROMPTS ──────────────────────────────────
+        # Tidak ada lagi user_greeting — nama user sudah ada di blok memory
+        # jika identity sudah tersimpan di collection 'user_identity'.
         if lang == "id":
-            system_msg = (
-                "Kamu adalah Agribot, asisten pertanian yang ramah dan santai. "
-                "Balas percakapan sosial dengan singkat, hangat, dan natural dalam Bahasa Indonesia. "
-                "Jangan sebut tanaman atau pertanian kecuali diminta pengguna.\n\n"
-                "Contoh percakapan:\n"
-                "Pengguna: halo\n"
-                "Agribot: Halo! Bagaimana bisa saya membantu Anda hari ini?\n\n"
-                "Pengguna: apa kabar?\n"
-                "Agribot: Alhamdulillah baik, terima kasih sudah bertanya! Bagaimana dengan Anda?\n\n"
-                "Pengguna: terima kasih\n"
-                "Agribot: Sama-sama! Senang bisa membantu. Jangan ragu bertanya lagi ya.\n\n"
-                "Pengguna: selamat tinggal\n"
-                "Agribot: Selamat tinggal! Semoga hari Anda menyenangkan.\n\n"
-                "Pengguna: maaf mengganggu\n"
-                "Agribot: Tidak mengganggu sama sekali! Ada yang bisa saya bantu?"
+            memory_section = (
+                PROMPTS["social_memory_block_id"].format(memory=memory_text)
+                if memory_text else ""
+            )
+            system_msg = PROMPTS["social_system_id"].format(
+                memory_section=memory_section,
             )
         else:
-            system_msg = (
-                "You are Agribot, a friendly farming assistant. "
-                "Reply to casual social messages briefly and naturally in English. "
-                "Do not mention plants or farming unless the user asks.\n\n"
-                "Example conversations:\n"
-                "User: hello\n"
-                "Agribot: Hello! How can I help you today?\n\n"
-                "User: how are you?\n"
-                "Agribot: I'm doing great, thanks for asking! How about you?\n\n"
-                "User: thank you\n"
-                "Agribot: You're welcome! Feel free to ask anytime.\n\n"
-                "User: goodbye\n"
-                "Agribot: Goodbye! Have a wonderful day.\n\n"
-                "User: sorry to bother you\n"
-                "Agribot: Not a bother at all! What can I help you with?"
+            memory_section = (
+                PROMPTS["social_memory_block_en"].format(memory=memory_text)
+                if memory_text else ""
+            )
+            system_msg = PROMPTS["social_system_en"].format(
+                memory_section=memory_section,
             )
 
         messages = [
@@ -770,7 +1080,8 @@ class RAGPipeline:
             {"role": "user",   "content": query},
         ]
 
-        log.info("[Social] Groq few-shot — lang=%s  query=%r", lang, query[:60])
+        log.info("[Social] Groq few-shot — lang=%s  memory=%s  user_id=%s  query=%r",
+                 lang, "ya" if memory_text else "tidak", user_id or "-", query[:60])
 
         answer_gen = self._generate_stream(
             messages,
@@ -794,19 +1105,29 @@ class RAGPipeline:
     def process_knowledge_query(
         self,
         query:      str,
+        chat_id:    int | None = None,
         stop_event: threading.Event = None,
+        user_id:    int | None = None,
     ) -> RAGResponse:
         """
-        Pipeline knowledge — WITH retrieval (5 tahap penuh).
+        Pipeline knowledge — WITH retrieval (6 tahap).
           Tahap 1 → ChromaDB wide retrieval
           Tahap 2 → Neo4j context enrichment
-          Tahap 3 → BGE reranking (CPU)
+          Tahap 3 → BGE reranking (GPU)
           Tahap 4 → Filtering & diversifikasi sumber
-          Tahap 5 → LLM streaming generation (GPU, temp=0.2)
+          Tahap 5 → Memory inject (identity + chat_memory dari ChromaDB)
+          Tahap 6 → LLM streaming generation (Groq API, temp=0.2)
+
+        chat_id digunakan di Tahap 5 untuk mengambil memory summary.
+        Jika None (misal dari simple_retrieval), memory dilewati.
+
+        user_id (opsional): digunakan di Tahap 5 agar get_memory() dapat
+        menyertakan identitas user (nama dll.) dari collection 'user_identity'.
+        Nama user TIDAK diinjek ke base prompt — hanya lewat blok memory.
         """
         t_start = time.perf_counter()
         log.info("═" * 60)
-        log.info("[Knowledge] Query: %r", query[:120])
+        log.info("[Knowledge] Query: %r  chat_id=%s", query[:120], chat_id)
 
         # ── Deteksi bahasa & NLP keyword enrichment ───────────────────────────
         lang = self._detect_language(query)
@@ -902,7 +1223,7 @@ class RAGPipeline:
         # Strategi dua lapis:
         #   a) max_chunks_per_jurnal — cegah satu jurnal mendominasi konteks
         #   b) final_context_k       — batasi total chunk ke LLM agar prompt
-        #                              tidak melebihi VRAM
+        #                              tidak melebihi context window
         # ══════════════════════════════════════════════════════════════════════
         max_per_j = CONFIG["max_chunks_per_jurnal"]
         final_k   = CONFIG["final_context_k"]
@@ -928,9 +1249,31 @@ class RAGPipeline:
         )
 
         # ══════════════════════════════════════════════════════════════════════
-        # TAHAP 5 — LLM Generation (Groq API, streaming)
+        # TAHAP 5 — Memory Inject
+        #
+        # Ambil hybrid memory dari ChromaDB:
+        #   - Identitas user (collection 'user_identity') via user_id
+        #   - Running summary + recent window (collection 'chat_memory') via chat_id
+        # Ketiganya digabung oleh get_memory() menjadi satu blok yang diinjek
+        # ke system prompt. Nama user TIDAK ada di base prompt — hanya di sini.
         # ══════════════════════════════════════════════════════════════════════
-        messages   = self._build_messages(query, final_chunks, lang=lang)
+        memory_text: str | None = None
+        if chat_id is not None:
+            log.info("[Tahap 5] Mengambil memory untuk chat_id=%d  user_id=%s...", chat_id, user_id)
+            memory_text = self.get_memory(chat_id, query, user_id=user_id)
+            if memory_text:
+                log.info(
+                    "[Tahap 5] Memory ditemukan  (%d char)", len(memory_text)
+                )
+            else:
+                log.info("[Tahap 5] Belum ada memory — pertanyaan pertama atau belum ada entry relevan.")
+        else:
+            log.debug("[Tahap 5] chat_id=None — memory dilewati.")
+
+        # ══════════════════════════════════════════════════════════════════════
+        # TAHAP 6 — LLM Generation (Groq API, streaming)
+        # ══════════════════════════════════════════════════════════════════════
+        messages   = self._build_messages(query, final_chunks, lang=lang, memory=memory_text)
         answer_gen = self._generate_stream(
             messages,
             stop_event=stop_event,
@@ -956,8 +1299,9 @@ class RAGPipeline:
 
         elapsed = time.perf_counter() - t_start
         log.info(
-            "[Knowledge] Pipeline selesai — %.3fs  |  chunks=%d  sumber=%d",
+            "[Knowledge] Pipeline selesai — %.3fs  |  chunks=%d  sumber=%d  memory=%s",
             elapsed, len(final_chunks), len(sources),
+            "ya" if memory_text else "tidak",
         )
         log.info("═" * 60)
 
@@ -996,6 +1340,7 @@ class RAGPipeline:
             "maaf", "sorry", "permisi",
             "dadah", "bye",
             "oke", "ok", "baik", "siap", "sip",
+            "namaku", "ingat", "siapa aku"
         }
         for phrase in SOCIAL_PHRASES:
             if phrase in normalized:
@@ -1088,70 +1433,73 @@ class RAGPipeline:
         en_score = len(words & en_markers)
         return "en" if en_score >= 2 else "id"
 
-    def _build_messages(self, query: str, chunks: List[EnrichedChunk], lang: str = None) -> List[Dict]:
-        """
-        Bangun messages list format OpenAI/Groq Chat Completions.
+    def _build_messages(
+            self,
+            query:  str,
+            chunks: List[EnrichedChunk],
+            lang:   str = None,
+            memory: str | None = None,
+        ) -> List[Dict]:
+            """
+            Bangun messages list untuk knowledge pipeline.
+            Prompt diambil dari PROMPTS (config.py) — tidak ada string literal di sini.
 
-        Berbeda dengan versi Mistral lokal yang menghasilkan string prompt,
-        Groq API menerima list [{"role": ..., "content": ...}] langsung —
-        tidak perlu apply_chat_template manual.
+            Nama user TIDAK dioper ke sini — sudah masuk lewat blok memory
+            yang disiapkan oleh get_memory() (gabungan identity + chat_memory).
+            """
+            max_chars     = CONFIG["context_max_chars"]
+            context_parts: List[str] = []
+            used_chars    = 0
 
-        Konteks menggunakan context_text (prev+target+next) agar LLM
-        mendapat gambaran lebih utuh per sub-topik.
+            for i, c in enumerate(chunks, 1):
+                part = f"[{i}] {c.sub_judul}\n{c.context_text}"
+                if used_chars + len(part) > max_chars:
+                    remaining = max_chars - used_chars
+                    if remaining > 200:
+                        context_parts.append(part[:remaining] + "…")
+                    break
+                context_parts.append(part)
+                used_chars += len(part)
 
-        Parameter lang (opsional): 'id' atau 'en'. Jika None, dideteksi otomatis.
-        """
-        max_chars     = CONFIG["context_max_chars"]
-        context_parts: List[str] = []
-        used_chars    = 0
+            context_str = "\n\n".join(context_parts)
 
-        for i, c in enumerate(chunks, 1):
-            part = f"[{i}] {c.sub_judul}\n{c.context_text}"
-            if used_chars + len(part) > max_chars:
-                remaining = max_chars - used_chars
-                if remaining > 200:
-                    context_parts.append(part[:remaining] + "…")
-                break
-            context_parts.append(part)
-            used_chars += len(part)
+            source_lines = [
+                f"[{i}] {c.judul_jurnal} — {c.penulis} ({c.tanggal_rilis})"
+                + (f"  DOI: {c.doi}" if c.doi else "")
+                + f"  hal. {c.halaman}"
+                for i, c in enumerate(chunks, 1)
+            ]
+            source_str = "\n".join(source_lines)
 
-        context_str = "\n\n".join(context_parts)
+            lang = lang if lang is not None else self._detect_language(query)
 
-        source_lines = [
-            f"[{i}] {c.judul_jurnal} — {c.penulis} ({c.tanggal_rilis})"
-            + (f"  DOI: {c.doi}" if c.doi else "")
-            + f"  hal. {c.halaman}"
-            for i, c in enumerate(chunks, 1)
-        ]
-        source_str = "\n".join(source_lines)
+            if lang == "id":
+                memory_section = (
+                    PROMPTS["knowledge_memory_block_id"].format(memory=memory)
+                    if memory else ""
+                )
+                system_content = PROMPTS["knowledge_system_id"].format(
+                    memory_section=memory_section,
+                    context_str=context_str,
+                    source_str=source_str,
+                )
+                question_label = "Pertanyaan"
+            else:
+                memory_section = (
+                    PROMPTS["knowledge_memory_block_en"].format(memory=memory)
+                    if memory else ""
+                )
+                system_content = PROMPTS["knowledge_system_en"].format(
+                    memory_section=memory_section,
+                    context_str=context_str,
+                    source_str=source_str,
+                )
+                question_label = "Question"
 
-        lang = lang if lang is not None else self._detect_language(query)
-        log.debug("[Prompt] lang=%s  ctx=%d char", lang, used_chars)
-
-        if lang == "id":
-            lang_rule      = (
-                "WAJIB: Jawab dalam Bahasa Indonesia. "
-                "Konteks mungkin berbahasa Inggris — terjemahkan istilah teknis jika perlu."
-            )
-            question_label = "Pertanyaan"
-        else:
-            lang_rule      = "Answer entirely in English."
-            question_label = "Question"
-
-        system_content = (
-            "Anda adalah asisten ahli penyakit tanaman. "
-            f"{lang_rule} "
-            "Jawab HANYA berdasarkan konteks jurnal berikut. "
-            "Jika informasi tidak tersedia, nyatakan tidak tahu. "
-            "JANGAN mengarang data.\n\n"
-            f"KONTEKS:\n{context_str}\n\n"
-            f"SUMBER:\n{source_str}"
-        )
-
-        return [
-            {"role": "system", "content": system_content},
-            {"role": "user",   "content": f"{question_label}: {query}"},
-        ]
+            return [
+                {"role": "system", "content": system_content},
+                {"role": "user",   "content": f"{question_label}: {query}"},
+            ]
 
     def _generate_stream(
         self,
@@ -1169,6 +1517,8 @@ class RAGPipeline:
 
         stop_event.set() dari luar → hentikan iterasi streaming lebih awal.
         temperature, top_p, max_new_tokens — jika None, pakai CONFIG default.
+
+        Dipakai oleh semua jalur: knowledge dan social.
         """
         _temperature    = temperature    if temperature    is not None else CONFIG["temperature"]
         _top_p          = top_p          if top_p          is not None else CONFIG["top_p"]

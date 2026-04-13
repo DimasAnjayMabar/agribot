@@ -68,18 +68,19 @@ def _cleanup_event(detail_id: int) -> None:
 # HELPER — LLM
 # =============================================================================
 
-def _call_llm(question: str, chat_id: int) -> dict:
+def _call_llm(question: str, chat_id: int, user_id: int | None = None) -> dict:
     """
     Panggil RAG pipeline dan kumpulkan token streaming jadi satu string.
-    chat_id diteruskan ke pipeline agar memory summary bisa di-inject
-    ke prompt sebelum LLM generate.
+    chat_id diteruskan ke pipeline agar memory bisa di-inject ke prompt.
+    user_id diteruskan agar pipeline dapat menyertakan identitas user
+    (dari collection 'user_identity') ke dalam blok memory.
     Return dict berisi response, token counts, latency.
     """
     start    = time.time()
     pipeline = get_rag_pipeline()
 
     full_response = ""
-    rag_response  = pipeline.process_query(question, chat_id=chat_id)
+    rag_response  = pipeline.process_query(question, chat_id=chat_id, user_id=user_id)
 
     for token in rag_response.answer:
         full_response += token
@@ -123,9 +124,9 @@ def _save_pipeline_log(
     return log
 
 
-def _invoke_llm_safe(question: str, chat_id: int, context: str) -> tuple[dict, str, str | None]:
+def _invoke_llm_safe(question: str, chat_id: int, context: str, user_id: int | None = None) -> tuple[dict, str, str | None]:
     try:
-        result = _call_llm(question, chat_id=chat_id)
+        result = _call_llm(question, chat_id=chat_id, user_id=user_id)
         return result, "success", None
     except Exception as exc:
         logger.error(f"LLM call failed — {context}: {exc}")
@@ -228,38 +229,35 @@ def _save_memory_entry(chat_id: int, detail_id: int, question: str, answer: str)
     Dipanggil oleh _rag_worker setelah response berhasil di-commit ke DB.
     Berjalan di thread daemon terpisah agar tidak memblokir sinyal SSE.
 
-    Setiap entry disimpan dengan id unik 'memory_{chat_id}_{detail_id}'
-    sehingga seluruh riwayat percakapan tetap utuh. Saat query baru masuk,
-    pipeline.get_memory() melakukan similarity search dan hanya mengambil
-    entry yang paling relevan dengan query tersebut.
+    Identitas user (nama dll.) TIDAK disimpan di sini — sudah ditangani
+    oleh _save_identity_entry yang dipanggil terpisah di _rag_worker.
     """
     try:
         pipeline = get_rag_pipeline()
         pipeline.save_memory(chat_id, detail_id, question, answer)
-        logger.info(
-            f"[MemorySave] Selesai → chat_id={chat_id}  detail_id={detail_id}"
-        )
+        logger.info(f"[MemorySave] Selesai → chat_id={chat_id} detail_id={detail_id}")
     except Exception as exc:
-        logger.error(
-            f"[MemorySave] Error — chat_id={chat_id}  detail_id={detail_id}: {exc}",
-            exc_info=True,
-        )
+        logger.error(f"[MemorySave] Error — chat_id={chat_id}: {exc}", exc_info=True)
 
 
 # =============================================================================
 # BACKGROUND TASK — RAG Worker
 # =============================================================================
 
-def _rag_worker(detail_id: int, question: str, chat_id: int, db_factory) -> None:
+def _rag_worker(detail_id: int, question: str, chat_id: int, db_factory, user_id: int) -> None:
     """
     Dijalankan di thread terpisah.
-    1. Panggil RAG pipeline (dengan chat_id untuk memory inject)
-    2. Update ChatDetail.response + processing_status di DB
-    3. Simpan PipelineLog
-    4. Signal asyncio.Event agar SSE endpoint tahu hasilnya sudah siap
-    5. Spawn _save_memory_entry untuk simpan Q&A pair ke ChromaDB (non-blocking)
+    1. Ambil user dari tabel users (query sekali di awal)
+    2. Simpan/update identitas user ke ChromaDB 'user_identity' (non-blocking)
+    3. Panggil RAG pipeline (dengan chat_id + user_id untuk personalisasi)
+    4. Update ChatDetail.response + processing_status di DB
+    5. Simpan PipelineLog
+    6. Signal asyncio.Event agar SSE endpoint tahu hasilnya sudah siap
+    7. Spawn _save_memory_entry untuk simpan Q&A pair ke ChromaDB (non-blocking)
 
     Urutan penting:
+      - save_identity dipanggil SEBELUM pipeline agar identitas sudah tersedia
+        saat get_memory() dijalankan di dalam pipeline (pertanyaan pertama user)
       - _signal_done dipanggil di finally → SSE selalu mendapat sinyal
         meski terjadi error di langkah sebelumnya
       - _save_memory_entry di-spawn SETELAH commit + signal, sehingga
@@ -267,10 +265,34 @@ def _rag_worker(detail_id: int, question: str, chat_id: int, db_factory) -> None
     """
     db: Session = db_factory()
     try:
+        # ── Ambil data user dari DB ───────────────────────────────────────────
+        from models import User  # local import — hindari circular import
+        user      = db.query(User).filter(User.id == user_id).first()
+        user_name = user.name if user else None  # fix: user.name bukan User.name
+        if user_name:
+            logger.debug(f"RAG worker: user_name={user_name!r}  detail_id={detail_id}")
+
+        # ── Simpan/update identitas user ke ChromaDB 'user_identity' ─────────
+        # Dilakukan SEBELUM pipeline dipanggil agar get_memory() di dalam
+        # pipeline sudah bisa membaca identitas user pada pertanyaan pertama.
+        # Operasi ini ringan (upsert satu dokumen pendek) dan aman dipanggil
+        # setiap request karena idempoten — hanya update jika nama berubah.
+        if user_name:
+            try:
+                pipeline_obj = get_rag_pipeline()
+                pipeline_obj.save_identity(user_id, user_name)
+            except Exception as exc:
+                # Gagal simpan identity tidak boleh menghentikan pipeline utama
+                logger.warning(
+                    f"[Identity] Gagal simpan identity user_id={user_id}: {exc}"
+                )
+
+        # ── Panggil RAG pipeline ──────────────────────────────────────────────
         llm_result, llm_status, error_msg = _invoke_llm_safe(
             question,
             chat_id=chat_id,
             context=f"bg_detail_id={detail_id}",
+            user_id=user_id,
         )
 
         detail = db.query(ChatDetail).filter(ChatDetail.id == detail_id).first()
@@ -297,8 +319,6 @@ def _rag_worker(detail_id: int, question: str, chat_id: int, db_factory) -> None
         )
 
         # ── Spawn memory save jika response berhasil ──────────────────────────
-        # Hanya simpan jika LLM sukses — response 'failed' adalah pesan error,
-        # bukan jawaban nyata, tidak perlu masuk ke memori.
         if llm_status == "success":
             m = threading.Thread(
                 target=_save_memory_entry,
@@ -489,10 +509,10 @@ class ChatService:
         # ── Siapkan event SEBELUM spawn thread ────────────────────────────────
         _get_or_create_event(detail.id)
 
-        # ── Spawn RAG worker dengan chat_id ───────────────────────────────────
+        # ── Spawn RAG worker dengan chat_id + user_id ─────────────────────────
         t = threading.Thread(
             target=_rag_worker,
-            args=(detail.id, question.strip(), chat.id, db_factory),
+            args=(detail.id, question.strip(), chat.id, db_factory, user_id),
             daemon=True,
             name=f"rag-worker-{detail.id}",
         )
@@ -557,7 +577,7 @@ class ChatService:
 
         t = threading.Thread(
             target=_rag_worker,
-            args=(detail.id, new_question.strip(), chat_id, db_factory),
+            args=(detail.id, new_question.strip(), chat_id, db_factory, user_id),
             daemon=True,
             name=f"rag-edit-{detail.id}",
         )
@@ -599,7 +619,7 @@ class ChatService:
 
         t = threading.Thread(
             target=_rag_worker,
-            args=(detail.id, question, chat_id, db_factory),
+            args=(detail.id, question, chat_id, db_factory, user_id),
             daemon=True,
             name=f"rag-regen-{detail.id}",
         )
