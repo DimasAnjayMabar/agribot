@@ -3175,3 +3175,127 @@ groq.RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached
 2026-04-13 15:25:52  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=38  detail_id=103  prev_summary=1017 char
 2026-04-13 15:25:53  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=38  detail_id=103  (1109 char)
 2026-04-13 15:25:54  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=38  detail_id=103
+2026-04-14 09:56:25  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-04-14 09:56:25  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-04-14 09:56:25  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-04-14 09:56:25  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(llama-3.3-70b-versatile)
+2026-04-14 09:56:25  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-04-14 09:56:40  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (14.55s)
+2026-04-14 09:56:40  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-04-14 09:56:49  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (9.02s)
+2026-04-14 09:56:49  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=llama-3.3-70b-versatile
+2026-04-14 09:56:50  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-04-14 09:56:50  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-04-14 09:56:57  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (7.88s)
+2026-04-14 09:56:57  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-04-14 09:56:57  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: F:\proyek magang\chatbot3\chroma_db
+2026-04-14 09:57:05  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-04-14 09:57:05  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-04-14 09:57:05  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-04-16 10:57:06  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-04-16 10:57:06  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-04-16 10:57:06  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-04-16 10:57:06  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(llama-3.3-70b-versatile)
+2026-04-16 10:57:06  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-04-16 10:57:21  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (15.00s)
+2026-04-16 10:57:21  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-04-16 10:57:30  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (8.64s)
+2026-04-16 10:57:30  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=llama-3.3-70b-versatile
+2026-04-16 10:57:30  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-04-16 10:57:30  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-04-16 10:57:38  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (7.54s)
+2026-04-16 10:57:38  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-04-16 10:57:38  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: F:\proyek magang\chatbot3\chroma_db
+2026-04-16 10:57:47  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-04-16 10:57:47  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-04-16 10:57:47  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-04-16 11:00:03  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Disimpan → user_id=6  user_name='user'
+2026-04-16 11:00:03  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Intent] knowledge — tanda tanya
+2026-04-16 11:00:03  [36mINFO    [0m  [38;5;245magribot[0m  Intent terdeteksi: knowledge — query='halo, apa kau mengenalku?'
+2026-04-16 11:00:03  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-04-16 11:00:03  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Query: 'halo, apa kau mengenalku?'  chat_id=39
+2026-04-16 11:00:03  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Bahasa terdeteksi: id
+2026-04-16 11:00:03  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [NLP-ID] keywords: halo kau mengenal
+2026-04-16 11:00:03  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Knowledge] Query diperkaya: 'halo, apa kau mengenalku? halo kau mengenal'
+2026-04-16 11:00:03  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] ChromaDB retrieval (k=30)...
+2026-04-16 11:00:04  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  ChromaDB: 30 kandidat ditemukan (k=30)
+2026-04-16 11:00:04  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] 30 kandidat ditemukan  (0.495s)
+2026-04-16 11:00:04  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] Neo4j enrichment (30 kandidat, window=±2)...
+2026-04-16 11:00:19  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  Neo4j enrich: 30/30 berhasil diperkaya
+2026-04-16 11:00:19  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] 30 chunk diperkaya  (14.753s)
+2026-04-16 11:00:19  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 3] BGE reranking (30 → top 10) @ GPU...
+2026-04-16 11:02:19  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 3] Top 10 dipilih  (120.170s)  skor: min=0.0004  max=0.0126
+2026-04-16 11:02:19  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 4] Filtering: max 5/jurnal → ambil top 5...
+2026-04-16 11:02:19  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 4] Final: 5 chunk dari 4 jurnal
+2026-04-16 11:02:19  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 5] Mengambil memory untuk chat_id=39  user_id=6...
+2026-04-16 11:02:20  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Ditemukan user_id=6  (19 char)
+2026-04-16 11:02:20  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Memory] Belum ada recent entries untuk chat_id=39
+2026-04-16 11:02:20  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Hybrid memory siap — chat_id=39  (46 char)
+2026-04-16 11:02:20  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 5] Memory ditemukan  (46 char)
+2026-04-16 11:02:20  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Pipeline selesai — 136.909s  |  chunks=5  sumber=5  memory=ya
+2026-04-16 11:02:20  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-04-16 11:02:20  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] Generate — model=llama-3.3-70b-versatile  max_tokens=2048  temperature=0.20  top_p=0.95
+2026-04-16 11:02:24  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] ✓ Selesai — 59 chunk  3.491s
+2026-04-16 11:02:24  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=39  detail_id=104  prev_summary=0 char
+2026-04-16 11:02:26  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=39  detail_id=104  (573 char)
+2026-04-16 11:02:27  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=39  detail_id=104
+2026-04-16 11:03:20  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Disimpan → user_id=6  user_name='user'
+2026-04-16 11:03:22  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Intent] knowledge — tanda tanya
+2026-04-16 11:03:22  [36mINFO    [0m  [38;5;245magribot[0m  Intent terdeteksi: knowledge — query='siapa namamu?'
+2026-04-16 11:03:22  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-04-16 11:03:22  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Query: 'siapa namamu?'  chat_id=39
+2026-04-16 11:03:22  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Bahasa terdeteksi: id
+2026-04-16 11:03:22  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [NLP-ID] keywords: siapa namamu
+2026-04-16 11:03:22  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Knowledge] Query diperkaya: 'siapa namamu? siapa namamu'
+2026-04-16 11:03:22  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] ChromaDB retrieval (k=30)...
+2026-04-16 11:03:22  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  ChromaDB: 30 kandidat ditemukan (k=30)
+2026-04-16 11:03:22  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] 30 kandidat ditemukan  (0.211s)
+2026-04-16 11:03:22  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] Neo4j enrichment (30 kandidat, window=±2)...
+2026-04-16 11:03:22  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  Neo4j enrich: 30/30 berhasil diperkaya
+2026-04-16 11:03:22  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] 30 chunk diperkaya  (0.274s)
+2026-04-16 11:03:22  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 3] BGE reranking (30 → top 10) @ GPU...
+2026-04-16 11:05:34  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 3] Top 10 dipilih  (131.175s)  skor: min=0.0013  max=0.0153
+2026-04-16 11:05:34  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 4] Filtering: max 5/jurnal → ambil top 5...
+2026-04-16 11:05:34  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 4] Final: 5 chunk dari 3 jurnal
+2026-04-16 11:05:34  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 5] Mengambil memory untuk chat_id=39  user_id=6...
+2026-04-16 11:05:34  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Ditemukan user_id=6  (19 char)
+2026-04-16 11:05:34  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Memory] Belum ada recent entries untuk chat_id=39
+2026-04-16 11:05:34  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Hybrid memory siap — chat_id=39  (46 char)
+2026-04-16 11:05:34  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 5] Memory ditemukan  (46 char)
+2026-04-16 11:05:34  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Pipeline selesai — 132.255s  |  chunks=5  sumber=5  memory=ya
+2026-04-16 11:05:34  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-04-16 11:05:34  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] Generate — model=llama-3.3-70b-versatile  max_tokens=2048  temperature=0.20  top_p=0.95
+2026-04-16 11:05:35  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] ✓ Selesai — 32 chunk  1.190s
+2026-04-16 11:05:36  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=39  detail_id=104  prev_summary=0 char
+2026-04-16 11:05:37  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=39  detail_id=104  (448 char)
+2026-04-16 11:05:38  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=39  detail_id=104
+2026-04-16 11:05:49  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Disimpan → user_id=6  user_name='user'
+2026-04-16 11:05:49  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Intent] knowledge — tanda tanya
+2026-04-16 11:05:49  [36mINFO    [0m  [38;5;245magribot[0m  Intent terdeteksi: knowledge — query='siapa namamu?'
+2026-04-16 11:05:49  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-04-16 11:05:49  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Query: 'siapa namamu?'  chat_id=39
+2026-04-16 11:05:49  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Bahasa terdeteksi: id
+2026-04-16 11:05:49  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [NLP-ID] keywords: siapa namamu
+2026-04-16 11:05:49  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Knowledge] Query diperkaya: 'siapa namamu? siapa namamu'
+2026-04-16 11:05:49  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] ChromaDB retrieval (k=30)...
+2026-04-16 11:05:49  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  ChromaDB: 30 kandidat ditemukan (k=30)
+2026-04-16 11:05:49  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] 30 kandidat ditemukan  (0.089s)
+2026-04-16 11:05:49  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] Neo4j enrichment (30 kandidat, window=±2)...
+2026-04-16 11:05:49  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  Neo4j enrich: 30/30 berhasil diperkaya
+2026-04-16 11:05:49  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] 30 chunk diperkaya  (0.197s)
+2026-04-16 11:05:49  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 3] BGE reranking (30 → top 10) @ GPU...
+2026-04-16 11:08:02  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 3] Top 10 dipilih  (132.383s)  skor: min=0.0013  max=0.0153
+2026-04-16 11:08:02  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 4] Filtering: max 5/jurnal → ambil top 5...
+2026-04-16 11:08:02  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 4] Final: 5 chunk dari 3 jurnal
+2026-04-16 11:08:02  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 5] Mengambil memory untuk chat_id=39  user_id=6...
+2026-04-16 11:08:02  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Ditemukan user_id=6  (19 char)
+2026-04-16 11:08:02  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Memory] Belum ada recent entries untuk chat_id=39
+2026-04-16 11:08:02  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Hybrid memory siap — chat_id=39  (46 char)
+2026-04-16 11:08:02  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 5] Memory ditemukan  (46 char)
+2026-04-16 11:08:02  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Pipeline selesai — 132.820s  |  chunks=5  sumber=5  memory=ya
+2026-04-16 11:08:02  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-04-16 11:08:02  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] Generate — model=llama-3.3-70b-versatile  max_tokens=2048  temperature=0.20  top_p=0.95
+2026-04-16 11:08:04  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] ✓ Selesai — 58 chunk  2.119s
+2026-04-16 11:08:04  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=39  detail_id=104  prev_summary=0 char
+2026-04-16 11:08:06  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=39  detail_id=104  (610 char)
+2026-04-16 11:08:06  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=39  detail_id=104

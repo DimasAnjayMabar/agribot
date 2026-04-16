@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from database import get_db, SessionLocal
 from middleware.auth import get_current_session
 from models import UserAuth, ChatDetail, Chat
-from service.chats import ChatService, _get_or_create_event, _cleanup_event
+from service.chats import ChatService, _get_or_create_event, _cleanup_event, _signal_stop
 from validation.chats import (
     CreateTopicSchema,
     RenameTitleSchema,
@@ -275,10 +275,14 @@ async def stream_response(
 
     async def event_stream():
         # Cek status awal
-        if detail.processing_status in ("done", "failed"):
-            event_type = "done" if detail.processing_status == "done" else "error"
+        if detail.processing_status in ("done", "failed", "stopped"):   # ← tambah "stopped"
+            event_type = (
+                "done"    if detail.processing_status == "done"
+                else "stopped" if detail.processing_status == "stopped"  # ← baru
+                else "error"
+            )
             yield _sse_event(event_type, {
-                "detail_id": detail_id,
+                "detail_id":         detail_id,
                 "processing_status": detail.processing_status,
             })
             _cleanup_event(detail_id)
@@ -336,7 +340,11 @@ async def stream_response(
         try:
             fresh_detail = fresh_db.query(ChatDetail).filter_by(id=detail_id).first()
             final_status = fresh_detail.processing_status if fresh_detail else "failed"
-            event_type = "done" if final_status == "done" else "error"
+            event_type   = (
+                "done"    if final_status == "done"
+                else "stopped" if final_status == "stopped"   # ← baru
+                else "error"
+            )
             
             logger.info(f"Sending {event_type} event for detail_id={detail_id}")  # ✅ Log
             yield _sse_event(event_type, {
@@ -446,3 +454,29 @@ def delete_message(
     except Exception as e:
         logger.error(f"DELETE /chat/message/{detail_id} error → {e}")
         raise HTTPException(status_code=500, detail="Terjadi kesalahan saat menghapus pesan.")
+    
+@router.post("/chat/stop/{detail_id}", status_code=status.HTTP_200_OK)
+def stop_generation(
+    detail_id: int,
+    db: Session = Depends(get_db),
+    current_session: UserAuth = Depends(get_current_session),
+):
+    try:
+        detail = ChatService.stop_generation(db, current_session.user_id, detail_id)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Pipeline dihentikan.",
+                "data": {
+                    "id":                detail.id,
+                    "chat_id":           detail.chat_id,
+                    "processing_status": detail.processing_status,
+                },
+            },
+        )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"POST /chat/stop/{detail_id} error → {e}")
+        raise HTTPException(status_code=500, detail="Terjadi kesalahan saat menghentikan pipeline.")

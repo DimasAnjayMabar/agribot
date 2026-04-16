@@ -31,7 +31,28 @@ logger = logging.getLogger(__name__)
 
 _pending_events: dict[int, asyncio.Event] = {}
 _events_lock = threading.Lock()
+_stop_events: dict[int, threading.Event] = {}
+_stop_lock = threading.Lock()
 
+def _get_stop_event(detail_id: int) -> threading.Event:
+    with _stop_lock:
+        if detail_id not in _stop_events:
+            _stop_events[detail_id] = threading.Event()
+        return _stop_events[detail_id]
+
+
+def _signal_stop(detail_id: int) -> None:
+    """Sinyal ke pipeline agar streaming dihentikan."""
+    with _stop_lock:
+        event = _stop_events.get(detail_id)
+        if event:
+            event.set()
+            logger.info(f"Stop signal dikirim → detail_id={detail_id}")
+
+
+def _cleanup_stop_event(detail_id: int) -> None:
+    with _stop_lock:
+        _stop_events.pop(detail_id, None)
 
 def _get_or_create_event(detail_id: int) -> asyncio.Event:
     with _events_lock:
@@ -63,26 +84,50 @@ def _cleanup_event(detail_id: int) -> None:
     with _events_lock:
         _pending_events.pop(detail_id, None)
 
+def _reset_event(detail_id: int) -> asyncio.Event:
+    """
+    Reset asyncio.Event (SSE) dan threading.Event (stop signal).
+    Dipanggil sebelum spawn thread baru untuk edit/regenerate
+    agar event lama yang sudah ter-set tidak langsung trigger SSE.
+    """
+    with _events_lock:
+        _pending_events.pop(detail_id, None)
+        event = asyncio.Event()
+        _pending_events[detail_id] = event
+
+    # Reset stop event juga agar pipeline baru tidak langsung berhenti
+    with _stop_lock:
+        _stop_events.pop(detail_id, None)
+
+    return event
+
 
 # =============================================================================
 # HELPER — LLM
 # =============================================================================
 
-def _call_llm(question: str, chat_id: int, user_id: int | None = None) -> dict:
-    """
-    Panggil RAG pipeline dan kumpulkan token streaming jadi satu string.
-    chat_id diteruskan ke pipeline agar memory bisa di-inject ke prompt.
-    user_id diteruskan agar pipeline dapat menyertakan identitas user
-    (dari collection 'user_identity') ke dalam blok memory.
-    Return dict berisi response, token counts, latency.
-    """
+def _call_llm(
+    question: str,
+    chat_id: int,
+    user_id: int | None = None,
+    stop_event: threading.Event = None,      # ← baru
+) -> dict:
     start    = time.time()
     pipeline = get_rag_pipeline()
 
     full_response = ""
-    rag_response  = pipeline.process_query(question, chat_id=chat_id, user_id=user_id)
+    rag_response  = pipeline.process_query(
+        question,
+        chat_id=chat_id,
+        user_id=user_id,
+        stop_event=stop_event,               # ← diteruskan ke pipeline
+    )
 
     for token in rag_response.answer:
+        # Cek stop setiap token — hentikan iterasi jika sudah di-set
+        if stop_event is not None and stop_event.is_set():
+            logger.info(f"[_call_llm] Stop event saat iterasi token — chat_id={chat_id}")
+            break
         full_response += token
 
     latency_ms = int((time.time() - start) * 1000)
@@ -124,9 +169,20 @@ def _save_pipeline_log(
     return log
 
 
-def _invoke_llm_safe(question: str, chat_id: int, context: str, user_id: int | None = None) -> tuple[dict, str, str | None]:
+def _invoke_llm_safe(
+    question: str,
+    chat_id: int,
+    context: str,
+    user_id: int | None = None,
+    stop_event: threading.Event = None,      # ← baru
+) -> tuple[dict, str, str | None]:
     try:
-        result = _call_llm(question, chat_id=chat_id, user_id=user_id)
+        result = _call_llm(
+            question,
+            chat_id=chat_id,
+            user_id=user_id,
+            stop_event=stop_event,           # ← diteruskan
+        )
         return result, "success", None
     except Exception as exc:
         logger.error(f"LLM call failed — {context}: {exc}")
@@ -140,7 +196,7 @@ def _invoke_llm_safe(question: str, chat_id: int, context: str, user_id: int | N
 
 
 # =============================================================================
-# BACKGROUND TASK — Memory Worker (Snowball)
+# BACKGROUND TASK — Memory Worker 
 # =============================================================================
 
 def _delete_memory_by_chat(chat_id: int) -> None:
@@ -244,71 +300,81 @@ def _save_memory_entry(chat_id: int, detail_id: int, question: str, answer: str)
 # BACKGROUND TASK — RAG Worker
 # =============================================================================
 
-def _rag_worker(detail_id: int, question: str, chat_id: int, db_factory, user_id: int) -> None:
-    """
-    Dijalankan di thread terpisah.
-    1. Ambil user dari tabel users (query sekali di awal)
-    2. Simpan/update identitas user ke ChromaDB 'user_identity' (non-blocking)
-    3. Panggil RAG pipeline (dengan chat_id + user_id untuk personalisasi)
-    4. Update ChatDetail.response + processing_status di DB
-    5. Simpan PipelineLog
-    6. Signal asyncio.Event agar SSE endpoint tahu hasilnya sudah siap
-    7. Spawn _save_memory_entry untuk simpan Q&A pair ke ChromaDB (non-blocking)
-
-    Urutan penting:
-      - save_identity dipanggil SEBELUM pipeline agar identitas sudah tersedia
-        saat get_memory() dijalankan di dalam pipeline (pertanyaan pertama user)
-      - _signal_done dipanggil di finally → SSE selalu mendapat sinyal
-        meski terjadi error di langkah sebelumnya
-      - _save_memory_entry di-spawn SETELAH commit + signal, sehingga
-        tidak memperlambat respons ke frontend sama sekali
-    """
+def _rag_worker(
+    detail_id: int,
+    question: str,
+    chat_id: int,
+    db_factory,
+    user_id: int,
+    is_edit: bool = False,
+) -> None:
     db: Session = db_factory()
-    try:
-        # ── Ambil data user dari DB ───────────────────────────────────────────
-        from models import User  # local import — hindari circular import
-        user      = db.query(User).filter(User.id == user_id).first()
-        user_name = user.name if user else None  # fix: user.name bukan User.name
-        if user_name:
-            logger.debug(f"RAG worker: user_name={user_name!r}  detail_id={detail_id}")
 
-        # ── Simpan/update identitas user ke ChromaDB 'user_identity' ─────────
-        # Dilakukan SEBELUM pipeline dipanggil agar get_memory() di dalam
-        # pipeline sudah bisa membaca identitas user pada pertanyaan pertama.
-        # Operasi ini ringan (upsert satu dokumen pendek) dan aman dipanggil
-        # setiap request karena idempoten — hanya update jika nama berubah.
+    # Ambil atau buat stop event untuk detail_id ini
+    stop_event = _get_stop_event(detail_id)
+
+    try:
+        from models import User
+        user      = db.query(User).filter(User.id == user_id).first()
+        user_name = user.name if user else None
+
         if user_name:
             try:
                 pipeline_obj = get_rag_pipeline()
                 pipeline_obj.save_identity(user_id, user_name)
             except Exception as exc:
-                # Gagal simpan identity tidak boleh menghentikan pipeline utama
-                logger.warning(
-                    f"[Identity] Gagal simpan identity user_id={user_id}: {exc}"
-                )
+                logger.warning(f"[Identity] Gagal simpan identity user_id={user_id}: {exc}")
 
-        # ── Panggil RAG pipeline ──────────────────────────────────────────────
+        # ── Jika is_edit/regenerate → bersihkan memory lama dulu ─────────────
+        if is_edit:
+            try:
+                pipeline_obj = get_rag_pipeline()
+                collection   = pipeline_obj.chroma.client.get_or_create_collection("chat_memory")
+                # Hapus summary agar tidak terkontaminasi jawaban versi sebelumnya
+                collection.delete(ids=[f"summary_{chat_id}"])
+                # Hapus recent entry untuk detail_id ini (akan di-upsert ulang)
+                collection.delete(ids=[f"recent_{chat_id}_{detail_id}"])
+                logger.info(
+                    f"[MemoryReset] Summary + recent entry dihapus sebelum regenerate "
+                    f"→ chat_id={chat_id}  detail_id={detail_id}"
+                )
+            except Exception as exc:
+                logger.warning(f"[MemoryReset] Gagal hapus memory lama: {exc}")
+
+        # ── Panggil RAG pipeline — teruskan stop_event ────────────────────────
         llm_result, llm_status, error_msg = _invoke_llm_safe(
             question,
             chat_id=chat_id,
             context=f"bg_detail_id={detail_id}",
             user_id=user_id,
+            stop_event=stop_event,          # ← baru
         )
+
+        # ── Cek apakah dihentikan oleh user ───────────────────────────────────
+        was_stopped = stop_event.is_set()
+        if was_stopped:
+            llm_status = "stopped"
+            logger.info(f"RAG worker dihentikan oleh user → detail_id={detail_id}")
 
         detail = db.query(ChatDetail).filter(ChatDetail.id == detail_id).first()
         if detail is None:
             logger.warning(f"RAG worker: detail_id={detail_id} tidak ditemukan di DB")
             return
 
-        detail.response           = llm_result["response"]
-        detail.processing_status  = "done" if llm_status == "success" else "failed"
+        detail.response = llm_result["response"]  # simpan partial response jika ada
+        detail.processing_status = (
+            "stopped" if was_stopped
+            else ("done" if llm_status == "success" else "failed")
+        )
 
         existing_log = db.query(PipelineLog).filter(
             PipelineLog.chat_detail_id == detail_id
         ).first()
 
         _save_pipeline_log(
-            db, detail_id, llm_result, llm_status, error_msg,
+            db, detail_id, llm_result,
+            llm_status if not was_stopped else "stopped",
+            error_msg,
             existing_log=existing_log,
         )
 
@@ -318,8 +384,8 @@ def _rag_worker(detail_id: int, question: str, chat_id: int, db_factory, user_id
             f"chat_id={chat_id}  status={detail.processing_status}"
         )
 
-        # ── Spawn memory save jika response berhasil ──────────────────────────
-        if llm_status == "success":
+        # ── Spawn memory save hanya jika benar-benar selesai (bukan stopped) ──
+        if llm_status == "success" and not was_stopped:
             m = threading.Thread(
                 target=_save_memory_entry,
                 args=(chat_id, detail_id, question, llm_result["response"]),
@@ -327,17 +393,11 @@ def _rag_worker(detail_id: int, question: str, chat_id: int, db_factory, user_id
                 name=f"memory-save-{chat_id}-{detail_id}",
             )
             m.start()
-            logger.info(
-                f"Memory save spawned → chat_id={chat_id}  "
-                f"detail_id={detail_id}  thread={m.name}"
-            )
 
     except Exception as exc:
         logger.error(f"RAG worker error — detail_id={detail_id}: {exc}")
         try:
-            detail = db.query(ChatDetail).filter(
-                ChatDetail.id == detail_id
-            ).first()
+            detail = db.query(ChatDetail).filter(ChatDetail.id == detail_id).first()
             if detail:
                 detail.processing_status = "failed"
                 db.commit()
@@ -345,8 +405,8 @@ def _rag_worker(detail_id: int, question: str, chat_id: int, db_factory, user_id
             pass
     finally:
         db.close()
-        # Selalu signal agar SSE tidak menunggu selamanya
-        _signal_done(detail_id)
+        _cleanup_stop_event(detail_id)
+        _signal_done(detail_id)   # selalu signal SSE
 
 
 # =============================================================================
@@ -573,11 +633,12 @@ class ChatService:
         db.commit()
         db.refresh(detail)
 
-        _get_or_create_event(detail.id)
+        _reset_event(detail.id)
 
         t = threading.Thread(
             target=_rag_worker,
             args=(detail.id, new_question.strip(), chat_id, db_factory, user_id),
+            kwargs={"is_edit": True},
             daemon=True,
             name=f"rag-edit-{detail.id}",
         )
@@ -615,11 +676,12 @@ class ChatService:
         db.commit()
         db.refresh(detail)
 
-        _get_or_create_event(detail.id)
+        _reset_event(detail.id)
 
         t = threading.Thread(
             target=_rag_worker,
             args=(detail.id, question, chat_id, db_factory, user_id),
+            kwargs={"is_edit": True},
             daemon=True,
             name=f"rag-regen-{detail.id}",
         )
@@ -651,3 +713,26 @@ class ChatService:
         _delete_memory_entry(chat_id, detail_id)
 
         return True
+    
+    @staticmethod
+    def stop_generation(db: Session, user_id: int, detail_id: int) -> ChatDetail:
+        detail = (
+            db.query(ChatDetail)
+            .join(Chat)
+            .filter(ChatDetail.id == detail_id, Chat.user_id == user_id)
+            .first()
+        )
+        if not detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Pesan tidak ditemukan.",
+            )
+        if detail.processing_status != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Pesan tidak sedang diproses (status: {detail.processing_status}).",
+            )
+
+        _signal_stop(detail_id)
+        logger.info(f"Stop diminta → detail_id={detail_id}  user_id={user_id}")
+        return detail

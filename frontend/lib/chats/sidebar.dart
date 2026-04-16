@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:frontend/chats/service_chats.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'chats.dart' show ChatTopic, ChatUserProfile;
