@@ -1,11 +1,13 @@
 // lib/chats/services/chat_service.dart
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:audioplayers/audioplayers.dart';
 
 // ---------------------------------------------------------------------------
 // Konfigurasi
@@ -14,8 +16,8 @@ import 'package:http/http.dart' as http;
 final _dio = Dio(
   BaseOptions(
     baseUrl: 'http://localhost:8000',
-    connectTimeout: const Duration(seconds: 10),
-    receiveTimeout: const Duration(seconds: 30),
+    connectTimeout: const Duration(seconds: 30),
+    receiveTimeout: const Duration(seconds: 60),
     headers: {'Content-Type': 'application/json'},
   ),
 );
@@ -210,6 +212,9 @@ class ChatService {
   int? _userId;
   Timer? _tokenTimer;
 
+  // Instance AudioPlayer untuk memutar TTS
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
   String? get accessToken => _accessToken;
   int? get userId => _userId;
 
@@ -272,6 +277,7 @@ class ChatService {
     _tokenTimer?.cancel();
     _accessToken = null;
     _userId = null;
+    _audioPlayer.stop();
     onForceLogout?.call();
   }
 
@@ -285,6 +291,7 @@ class ChatService {
     ]);
     _accessToken = null;
     _userId = null;
+    await _audioPlayer.stop();
   }
 
   Future<void> logout() async {
@@ -443,6 +450,40 @@ class ChatService {
   }
 
   // -------------------------------------------------------------------------
+  // Text-to-Speech (TTS) Methods
+  // -------------------------------------------------------------------------
+
+  Future<void> playTTS(int detailId) async {
+    try {
+      // 1. Hentikan suara jika sedang memutar pesan lain
+      await _audioPlayer.stop();
+
+      // 2. Gunakan Dio untuk mengambil raw bytes (aman dari isu CORS/Header di web & mobile)
+      final response = await _dio.get(
+        '/chat/message/$detailId/tts',
+        options: Options(
+          headers: _authHeader,
+          responseType: ResponseType.bytes, // Wajib: Ambil data sebagai bytes, bukan JSON
+        ),
+      );
+
+      // 3. Konversi ke format Uint8List yang dibutuhkan audioplayers
+      final List<int> audioData = response.data;
+      final Uint8List uint8Bytes = Uint8List.fromList(audioData);
+
+      // 4. Putar suara dari memory buffer (BytesSource)
+      await _audioPlayer.play(BytesSource(uint8Bytes));
+    } catch (e) {
+      print('❌ Error playing TTS: $e');
+      throw Exception('Gagal memutar audio TTS.');
+    }
+  }
+
+  Future<void> stopTTS() async {
+    await _audioPlayer.stop();
+  }
+
+  // -------------------------------------------------------------------------
   // SSE Methods
   // -------------------------------------------------------------------------
 
@@ -454,6 +495,7 @@ class ChatService {
 
   void dispose() {
     _tokenTimer?.cancel();
+    _audioPlayer.dispose();
   }
 }
 

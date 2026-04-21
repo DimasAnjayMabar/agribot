@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import io
+from gtts import gTTS
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -259,7 +261,47 @@ def get_message(
         logger.error(f"GET /chat/message/{detail_id} error → {e}")
         raise HTTPException(status_code=500, detail="Terjadi kesalahan saat mengambil pesan.")
 
+@router.get("/chat/message/{detail_id}/tts", status_code=status.HTTP_200_OK)
+def get_tts_audio(
+    detail_id: int,
+    db: Session = Depends(get_db),
+    current_session: UserAuth = Depends(get_current_session),
+):
+    """
+    Mengubah teks jawaban AI (response) menjadi audio (Text-to-Speech).
+    Frontend bisa menggunakan endpoint ini langsung di dalam tag <audio src="..."> 
+    atau memanggilnya saat tombol TTS ditekan.
+    """
+    try:
+        # 1. Ambil detail pesan dari database
+        detail = ChatService.get_detail(db, current_session.user_id, detail_id)
+        
+        if not detail.response:
+            raise HTTPException(status_code=400, detail="Belum ada jawaban dari AI untuk diubah menjadi suara.")
 
+        # 2. Generate Audio menggunakan gTTS (dengan bahasa Indonesia 'id')
+        tts = gTTS(text=detail.response, lang='id', slow=False)
+        
+        # 3. Simpan audio ke dalam buffer memori (agar tidak perlu simpan file fisik di server)
+        audio_io = io.BytesIO()
+        tts.write_to_fp(audio_io)
+        audio_io.seek(0)
+
+        # 4. Stream audio kembali ke frontend
+        return StreamingResponse(
+            audio_io,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": f"inline; filename=agribot_response_{detail_id}.mp3"
+            }
+        )
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"GET /chat/message/{detail_id}/tts error → {e}")
+        raise HTTPException(status_code=500, detail="Terjadi kesalahan saat men-generate audio TTS.")
+    
 # Perbaiki bagian akhir stream_response
 @router.get("/chat/stream/{detail_id}")
 async def stream_response(

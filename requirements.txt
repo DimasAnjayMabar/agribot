@@ -13,3 +13,6 @@ uvicorn
 fastapi
 pydantic
 alembic
+passlib
+pymysql
+'pydantic[email]'

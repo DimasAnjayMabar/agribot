@@ -42,6 +42,7 @@ dependencies:
   markdown: ^7.3.1
   http: ^1.6.0       # mungkin sudah ada
   url_launcher: ^6.3.2  # mungkin sudah ada
+  audioplayers: ^6.6.0
 
 dev_dependencies:
   flutter_test:

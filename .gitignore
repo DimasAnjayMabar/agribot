@@ -1,5 +1,6 @@
 model
 chroma_db
 venv
+.venv
 .env
 supabase_password.txt

@@ -392,6 +392,20 @@ class _ChatsPageState extends State<ChatsPage>
     _showSnack('Disalin ke clipboard.');
   }
 
+  Future<void> _playTTS(ChatMessage msg) async {
+    if (msg.response.isEmpty) {
+      _showSnack('Belum ada jawaban untuk dibacakan.');
+      return;
+    }
+    _showSnack('Memuat suara...');
+    
+    try {
+      await _chatService.playTTS(msg.id);
+    } catch (e) {
+      _showSnack('Gagal memutar suara.');
+    }
+  }
+
   Future<void> _resendMessage(ChatMessage msg) async {
     await _sendMessage(overrideText: msg.question, replaceDetailId: msg.id);
   }
@@ -570,6 +584,7 @@ class _ChatsPageState extends State<ChatsPage>
           onRegenerate   : () => _regenerateResponse(msg),
           onCopyQuestion : () => _copyText(msg.question),
           onCopyAnswer   : () => _copyText(msg.response),
+          onTTS          : () => _playTTS(msg),
         );
       },
     );
@@ -760,6 +775,7 @@ class _MessagePair extends StatefulWidget {
     required this.onRegenerate,
     required this.onCopyQuestion,
     required this.onCopyAnswer,
+    required this.onTTS,
   });
 
   final ChatMessage            message;
@@ -767,6 +783,7 @@ class _MessagePair extends StatefulWidget {
   final VoidCallback           onRegenerate;
   final VoidCallback           onCopyQuestion;
   final VoidCallback           onCopyAnswer;
+  final VoidCallback           onTTS;
 
   @override
   State<_MessagePair> createState() => _MessagePairState();
@@ -902,6 +919,7 @@ class _MessagePairState extends State<_MessagePair> {
               response    : msg.response,
               onRegenerate: widget.onRegenerate,
               onCopyAnswer: widget.onCopyAnswer,
+              onTTS       : widget.onTTS,
             )
           else
             // status 'done' — jawaban lengkap
@@ -914,6 +932,7 @@ class _MessagePairState extends State<_MessagePair> {
                 _AnswerActions(
                   onRegenerate: widget.onRegenerate,
                   onCopy: widget.onCopyAnswer,
+                  onTTS: widget.onTTS,
                 ),
               ],
             ),
@@ -1048,10 +1067,12 @@ class _AnswerActions extends StatelessWidget {
   const _AnswerActions({
     required this.onRegenerate,
     required this.onCopy,
+    required this.onTTS,
   });
 
   final VoidCallback onRegenerate;
   final VoidCallback onCopy;
+  final VoidCallback onTTS;
 
   @override
   Widget build(BuildContext context) {
@@ -1069,6 +1090,12 @@ class _AnswerActions extends StatelessWidget {
             icon: Icons.copy_rounded,
             label: 'Salin',
             onTap: onCopy,
+          ),
+          const SizedBox(width: 8),
+          _ActionChip(
+            icon: Icons.volume_up_rounded,
+            label: 'Dengarkan',
+            onTap: onTTS,
           ),
         ],
       ),
@@ -1266,11 +1293,13 @@ class _StoppedBubble extends StatelessWidget {
     required this.response,
     required this.onRegenerate,
     required this.onCopyAnswer,
+    required this.onTTS,
   });
   
   final String       response;
   final VoidCallback onRegenerate;
   final VoidCallback onCopyAnswer;
+  final VoidCallback onTTS;
 
   @override
   Widget build(BuildContext context) {
@@ -1347,6 +1376,12 @@ class _StoppedBubble extends StatelessWidget {
                 icon: Icons.copy_rounded,
                 label: 'Salin',
                 onTap: onCopyAnswer,
+              ),
+              const SizedBox(width: 8),
+              _ActionChip(
+                icon: Icons.volume_up_rounded,
+                label: 'Dengarkan',
+                onTap: onTTS,
               ),
             ],
           ),
