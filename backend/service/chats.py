@@ -196,7 +196,7 @@ def _invoke_llm_safe(
 
 
 # =============================================================================
-# BACKGROUND TASK — Memory Worker 
+# BACKGROUND TASK — Memory Worker
 # =============================================================================
 
 def _delete_memory_by_chat(chat_id: int) -> None:
@@ -713,7 +713,7 @@ class ChatService:
         _delete_memory_entry(chat_id, detail_id)
 
         return True
-    
+
     @staticmethod
     def stop_generation(db: Session, user_id: int, detail_id: int) -> ChatDetail:
         detail = (
@@ -736,3 +736,144 @@ class ChatService:
         _signal_stop(detail_id)
         logger.info(f"Stop diminta → detail_id={detail_id}  user_id={user_id}")
         return detail
+
+
+# =============================================================================
+# KNOWLEDGE SERVICE — PDF Upload & Embedding
+# =============================================================================
+
+def _embed_worker(saved_path: str, jurnal_metadata: dict) -> None:
+    """
+    Background thread: jalankan embedder pipeline untuk satu PDF.
+
+    Memakai run_pipeline_with_shared_resources() dari embedder.py sehingga
+    embedding model & koneksi Neo4j/ChromaDB dipinjam dari singleton yang
+    sudah berjalan — tidak ada inisialisasi ulang, zero VRAM overhead.
+
+    Dipanggil oleh KnowledgeService.upload_pdf() setelah file disimpan ke disk.
+    """
+    try:
+        from embedder import run_pipeline_with_shared_resources
+        result = run_pipeline_with_shared_resources(saved_path, jurnal_metadata)
+        if result:
+            logger.info(
+                f"[KnowledgeEmbed] Selesai → file={saved_path}  "
+                f"total_isi_nodes={result['stats']['total_isi_nodes']}"
+            )
+        else:
+            # run_pipeline mengembalikan None jika file sudah pernah diproses (hash match)
+            logger.warning(
+                f"[KnowledgeEmbed] Pipeline mengembalikan None "
+                f"(file mungkin sudah pernah diproses) → {saved_path}"
+            )
+    except Exception as exc:
+        logger.error(
+            f"[KnowledgeEmbed] Error saat embed → file={saved_path}: {exc}",
+            exc_info=True,
+        )
+
+
+class KnowledgeService:
+    """
+    Service untuk mengelola knowledge base chatbot via upload PDF.
+
+    Alur upload:
+      1. Controller menerima UploadFile, validasi tipe & ukuran
+      2. Controller memanggil KnowledgeService.upload_pdf() dengan bytes mentah
+      3. Service menyimpan file ke ./dataset/ (DATASET_DIR)
+      4. Service spawn _embed_worker di daemon thread
+      5. Return info file — embedder jalan di background tanpa memblokir response
+
+    Duplikasi konten (file sama, nama beda) ditangani oleh embedder
+    via MD5 hash check di Neo4j — file akan dilewati otomatis.
+    Duplikasi konten (hash sama) ditangani otomatis oleh embedder via MD5 check.
+    """
+
+    # Sesuai CONFIG["dataset_path"] di embedder.py
+    DATASET_DIR = "../dataset"
+
+    @staticmethod
+    def upload_pdf(
+        file_bytes: bytes,
+        filename:   str,
+        judul:      str | None = None,
+        penulis:    str | None = None,
+        tahun:      str | None = None,
+        user_id:    int | None = None,
+    ) -> dict:
+        """
+        Simpan PDF ke ./dataset/ lalu jalankan embedder di background thread.
+
+        Parameters:
+          file_bytes  : konten file PDF sebagai bytes (sudah dibaca oleh controller)
+          filename    : nama file asli dari user, e.g. "jurnal_padi.pdf"
+          judul       : judul jurnal/dokumen (opsional, fallback ke nama file)
+          penulis     : nama penulis (opsional, fallback ke "Unknown Author")
+          tahun       : tahun terbit e.g. "2024" (opsional, fallback ke "2024")
+          user_id     : id user yang upload — untuk logging saja, tidak disimpan ke DB
+
+        Returns:
+          dict berisi info file yang disimpan + status "processing"
+        """
+        import re
+        from pathlib import Path
+
+        # ── Pastikan folder dataset ada ───────────────────────────────────────
+        dataset_dir = Path(KnowledgeService.DATASET_DIR)
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+
+        # ── Sanitasi nama file asli ───────────────────────────────────────────
+        # Hapus karakter selain huruf, angka, titik, dash, underscore, spasi
+        clean_original = re.sub(r"[^\w\s.\-]", "_", filename).strip()
+        # Pastikan ekstensi .pdf tetap ada setelah sanitasi
+        if not clean_original.lower().endswith(".pdf"):
+            clean_original += ".pdf"
+
+        # ── Tambahkan prefix datetime server ─────────────────────────────────────
+        # Format: YYYYMMDD_HHMMSS_<nama_asli>.pdf
+        # Timestamp dari waktu server saat request masuk — unik per detik,
+        # sehingga file dengan nama sama tidak akan pernah collision.
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        safe_name = f"{ts}_{clean_original}"
+
+        dest_path = dataset_dir / safe_name
+
+        # ── Simpan ke disk ────────────────────────────────────────────────────
+        dest_path.write_bytes(file_bytes)
+        logger.info(
+            f"[KnowledgeUpload] File disimpan → {dest_path}  "
+            f"size={len(file_bytes)} bytes  user_id={user_id}"
+        )
+
+        # ── Susun metadata jurnal ─────────────────────────────────────────────
+        # Nama file asli (tanpa prefix timestamp dan ekstensi) sebagai fallback judul
+        stem = Path(clean_original).stem
+        jurnal_metadata = {
+            "judul":         (judul or stem).strip(),
+            "doi":           None,
+            "penulis":       (penulis or "Unknown Author").strip(),
+            "tanggal_rilis": (tahun or "2024").strip(),
+        }
+
+        # ── Spawn embedder di background ──────────────────────────────────────
+        t = threading.Thread(
+            target=_embed_worker,
+            args=(str(dest_path), jurnal_metadata),
+            daemon=True,
+            name=f"embed-{safe_name}",
+        )
+        t.start()
+        logger.info(
+            f"[KnowledgeUpload] Embedder dimulai di background → "
+            f"file={safe_name}  thread={t.name}"
+        )
+
+        return {
+            "filename":   safe_name,
+            "size_bytes": len(file_bytes),
+            "saved_path": str(dest_path),
+            "judul":      jurnal_metadata["judul"],
+            "penulis":    jurnal_metadata["penulis"],
+            "tahun":      jurnal_metadata["tanggal_rilis"],
+            "status":     "processing",
+        }

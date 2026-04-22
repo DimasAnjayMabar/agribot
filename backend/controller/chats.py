@@ -4,14 +4,14 @@ import logging
 import io
 from gtts import gTTS
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from database import get_db, SessionLocal
 from middleware.auth import get_current_session
 from models import UserAuth, ChatDetail, Chat
-from service.chats import ChatService, _get_or_create_event, _cleanup_event, _signal_stop
+from service.chats import ChatService, KnowledgeService, _get_or_create_event, _cleanup_event, _signal_stop
 from validation.chats import (
     CreateTopicSchema,
     RenameTitleSchema,
@@ -93,7 +93,6 @@ def create_topic(
     except Exception as e:
         logger.error(f"POST /topics error → {e}")
         raise HTTPException(status_code=500, detail="Terjadi kesalahan saat membuat topik.")
-
 
 @router.get("/topics", status_code=status.HTTP_200_OK)
 def get_topics(
@@ -522,3 +521,89 @@ def stop_generation(
     except Exception as e:
         logger.error(f"POST /chat/stop/{detail_id} error → {e}")
         raise HTTPException(status_code=500, detail="Terjadi kesalahan saat menghentikan pipeline.")
+
+
+# =============================================================================
+# KNOWLEDGE BASE — PDF UPLOAD
+# =============================================================================
+
+@router.post("/knowledge/upload", status_code=status.HTTP_202_ACCEPTED)
+async def upload_knowledge_pdf(
+    file: UploadFile = File(...),
+    judul: str | None = Form(default=None),
+    penulis: str | None = Form(default=None),
+    tahun: str | None = Form(default=None),
+    current_session: UserAuth = Depends(get_current_session),
+):
+    """
+    Upload PDF untuk ditambahkan ke knowledge base chatbot.
+
+    Form fields:
+      - file    : file PDF (wajib, maks 50 MB)
+      - judul   : judul jurnal/dokumen (opsional)
+      - penulis : nama penulis (opsional)
+      - tahun   : tahun terbit, e.g. "2024" (opsional)
+
+    Alur:
+      1. Validasi tipe file (harus PDF) dan ukuran (maks 50 MB)
+      2. Baca bytes file di sini (sebelum UploadFile di-close oleh FastAPI)
+      3. Serahkan ke KnowledgeService yang akan:
+         a. Simpan file ke ./dataset/
+         b. Jalankan embedder di background thread
+      4. Return 202 Accepted — embedder berjalan async
+
+    Hanya user yang sudah login yang bisa upload (requires auth).
+    """
+    # ── Validasi tipe MIME ────────────────────────────────────────────────────
+    if file.content_type not in ("application/pdf", "application/octet-stream"):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Hanya file PDF yang diperbolehkan.",
+        )
+
+    # ── Validasi ekstensi sebagai fallback ────────────────────────────────────
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Ekstensi file harus .pdf",
+        )
+
+    # ── Baca bytes (maks 50 MB) ───────────────────────────────────────────────
+    MAX_SIZE = 50 * 1024 * 1024  # 50 MB
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Ukuran file melebihi batas 50 MB.",
+        )
+    if len(file_bytes) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File PDF kosong.",
+        )
+
+    try:
+        result = KnowledgeService.upload_pdf(
+            file_bytes  = file_bytes,
+            filename    = file.filename or "upload.pdf",
+            judul       = judul,
+            penulis     = penulis,
+            tahun       = tahun,
+            user_id     = current_session.user_id,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "success": True,
+                "message": "PDF diterima dan sedang diproses ke knowledge base.",
+                "data":    result,
+            },
+        )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"POST /knowledge/upload error → {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Terjadi kesalahan saat memproses file PDF.",
+        )
