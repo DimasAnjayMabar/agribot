@@ -207,6 +207,11 @@ class RAGModels:
             CONFIG["embedding_model"],
             device=CONFIG["embedding_device"],
         )
+        # Lock melindungi embedding_model dari akses GPU bersamaan.
+        # RAG pipeline dan embedder PDF berbagi model yang sama —
+        # keduanya berjalan di background thread terpisah dan harus
+        # antri lewat lock ini sebelum memanggil .encode().
+        self.embedding_lock = threading.Lock()
         log.info("[1/4] Embedding siap  (%.2fs)", time.perf_counter() - _t)
 
         # ── 2. Reranker → GPU ─────────────────────────────────────────────────
@@ -263,11 +268,38 @@ class RAGModels:
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def get_embedding(self, text: str) -> List[float]:
-        """Embed teks → vektor float (GPU, no_grad)."""
-        with torch.no_grad():
-            return self.embedding_model.encode(
-                text, convert_to_tensor=False
-            ).tolist()
+        """
+        Embed satu teks → vektor float (GPU, no_grad, thread-safe).
+
+        Menggunakan embedding_lock agar tidak bertabrakan dengan
+        embed_batch_safe() yang dipanggil embedder PDF di thread lain.
+        """
+        with self.embedding_lock:
+            with torch.no_grad():
+                return self.embedding_model.encode(
+                    text, convert_to_tensor=False
+                ).tolist()
+
+    def embed_batch_safe(self, texts: List[str]) -> List[List[float]]:
+        """
+        Embed batch teks → list vektor float (GPU, no_grad, thread-safe).
+
+        Dipakai oleh embedder PDF saat ingest dokumen baru.
+        Berbagi embedding_lock dengan get_embedding() — keduanya
+        tidak akan menyentuh GPU bersamaan meski berjalan di thread berbeda.
+
+        Catatan: batch besar akan memegang lock lebih lama.
+        RAG query yang datang saat lock dipegang akan menunggu
+        sampai batch selesai — ini wajar dan by design.
+        """
+        with self.embedding_lock:
+            with torch.no_grad():
+                embeddings = self.embedding_model.encode(
+                    texts,
+                    convert_to_tensor=False,
+                    show_progress_bar=False,  # nonaktifkan progress bar di server
+                )
+                return [e.tolist() for e in embeddings]
 
     def rerank(self, query: str, texts: List[str]) -> List[float]:
         """

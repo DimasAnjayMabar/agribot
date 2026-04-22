@@ -12,24 +12,29 @@ Fitur Baru:
 """
 
 import hashlib
+import logging
 import re
 import uuid
 from pathlib import Path
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-import torch
 import pdfplumber
 import chromadb
-from sentence_transformers import SentenceTransformer
 from neo4j import GraphDatabase
+
+# RAGModels singleton — embedding model dipinjam dari pipeline yang sudah berjalan,
+# tidak ada inisialisasi model baru di sini.
+from pipeline import RAGModels
+
+logger = logging.getLogger(__name__)
 
 ############################################################
 # CONFIGURATION
 ############################################################
 
 CONFIG = {
-    "embedding_model": "intfloat/multilingual-e5-large",
-    "device": "cuda" if torch.cuda.is_available() else "cpu",
+    # embedding_model tidak diinisialisasi di sini —
+    # dipinjam dari RAGModels singleton via pipeline.py
     "max_tokens_per_chunk": 512,
 
     # ChromaDB
@@ -487,21 +492,11 @@ def build_isi_nodes(lines: List[Dict], jurnal_id: str) -> List[IsiNode]:
     return isi_nodes
 
 ############################################################
-# EMBEDDING MODEL
+# EMBEDDING — dipinjam dari RAGModels singleton
+# Tidak ada class EmbeddingModel di sini. Semua pemanggilan
+# .encode() dilakukan via RAGModels.embed_batch_safe() yang
+# sudah thread-safe dan berbagi GPU dengan RAG pipeline.
 ############################################################
-
-class EmbeddingModel:
-    def __init__(self, model_name: str = CONFIG["embedding_model"]):
-        self.device = CONFIG["device"]
-        self.model = SentenceTransformer(model_name, device=self.device)
-        print(f"Loaded embedding model: {model_name} on {self.device}")
-
-    def embed_text(self, text: str) -> List[float]:
-        return self.model.encode(text, convert_to_tensor=False).tolist()
-
-    def embed_batch(self, texts: List[str]) -> List[List[float]]:
-        embeddings = self.model.encode(texts, convert_to_tensor=False, show_progress_bar=True)
-        return [e.tolist() for e in embeddings]
 
 ############################################################
 # NEO4J INGESTOR
@@ -628,14 +623,14 @@ class ChromaIngestor:
         )
         print(f"ChromaDB initialized at: {persist_directory}")
 
-    def ingest_isi_nodes(self, isi_nodes: List[IsiNode], embedding_model: EmbeddingModel,
+    def ingest_isi_nodes(self, isi_nodes: List[IsiNode], rag_models: RAGModels,
                          judul_jurnal: str = ""):
         """
         Ingest IsiNode ke ChromaDB dengan contextualized embedding.
 
         Teks yang di-embed = "{judul_jurnal} | {sub_judul} | {konten_chunk}"
-        Ini memastikan chunk tetap membawa identitas judul & sub-topik saat dicari,
-        sehingga vector search lebih akurat meski chunk berada di tengah dokumen.
+        Embedding dihasilkan via rag_models.embed_batch_safe() — thread-safe,
+        berbagi GPU dengan RAG pipeline tanpa duplikasi instance model.
 
         ChromaDB `documents` tetap menyimpan konten_chunk murni (untuk retrieval),
         sedangkan embedding dihasilkan dari teks yang sudah diperkaya konteks.
@@ -644,14 +639,14 @@ class ChromaIngestor:
             return
 
         ids       = [n.id for n in isi_nodes]
-        documents = [n.konten_chunk for n in isi_nodes]   # disimpan apa adanya
+        documents = [n.konten_chunk for n in isi_nodes]
 
         # Teks yang di-embed: diperkaya dengan konteks judul jurnal + sub_judul
         texts_to_embed = [
             f"{judul_jurnal} | {n.sub_judul} | {n.konten_chunk}"
             for n in isi_nodes
         ]
-        embeddings = embedding_model.embed_batch(texts_to_embed)
+        embeddings = rag_models.embed_batch_safe(texts_to_embed)
 
         metadatas = [
             {"isi_id": n.id, "jurnal_id": n.jurnal_id}
@@ -664,18 +659,9 @@ class ChromaIngestor:
             embeddings=embeddings,
             metadatas=metadatas,
         )
-        print(f"  ✓ ChromaDB: {len(isi_nodes)} konten_chunk ingested ke '{CONFIG['chroma_collection']}' "
-              f"(contextualized embedding)")
-
-    def query(self, query_text: str, embedding_model: EmbeddingModel,
-              top_k: int = 5, jurnal_id: Optional[str] = None) -> Dict:
-        """Semantic search dengan optional filter jurnal_id."""
-        query_embedding = embedding_model.embed_text(query_text)
-        where_filter = {"jurnal_id": jurnal_id} if jurnal_id else None
-        return self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            where=where_filter,
+        logger.info(
+            "ChromaDB: %d konten_chunk ingested ke '%s' (contextualized embedding)",
+            len(isi_nodes), CONFIG["chroma_collection"],
         )
 
 ############################################################
@@ -684,7 +670,7 @@ class ChromaIngestor:
 
 def run_pipeline(pdf_path: str,
                  jurnal_metadata: Dict,
-                 embedding_model: EmbeddingModel,
+                 rag_models: RAGModels,
                  neo4j: Neo4jIngestor,
                  chroma: ChromaIngestor) -> Optional[Dict]:
     """
@@ -692,32 +678,37 @@ def run_pipeline(pdf_path: str,
 
     jurnal_metadata keys: judul, doi, penulis, tanggal_rilis
 
+    rag_models  : RAGModels singleton dari pipeline — embedding model dipinjam,
+                  tidak ada inisialisasi baru.
+    neo4j       : Neo4jIngestor — koneksi ke graph DB.
+    chroma      : ChromaIngestor — koneksi ke vector DB.
+
     Returns:
         Dict hasil jika file baru diproses
-        None jika file sudah ada (duplikat)
+        None jika file sudah ada (duplikat berdasarkan MD5 hash)
     """
-    print(f"\n{'='*60}")
-    print(f"Processing: {pdf_path}")
-    print(f"{'='*60}")
+    logger.info("Processing: %s", pdf_path)
 
     # Hitung hash file untuk deteksi duplikasi
     file_hash = calculate_file_hash(pdf_path)
-    print(f"File hash (MD5): {file_hash}")
+    logger.info("File hash (MD5): %s", file_hash)
 
     # Cek apakah file sudah pernah diproses
     if is_file_processed(neo4j.driver, file_hash):
-        print(f"⚠️  File sudah pernah diproses (hash: {file_hash[:8]}...). Melewati...")
+        logger.warning(
+            "File sudah pernah diproses (hash: %s...). Melewati...", file_hash[:8]
+        )
         return None
 
     # Step 1: Parse PDF
-    print("Step 1: Parsing PDF...")
+    logger.info("Step 1: Parsing PDF...")
     lines = parse_pdf_to_lines(pdf_path)
-    print(f"  Extracted {len(lines)} lines")
+    logger.info("  Extracted %d lines", len(lines))
 
     # Step 2: Clean boilerplate
-    print("Step 2: Removing boilerplate...")
+    logger.info("Step 2: Removing boilerplate...")
     lines = clean_lines(lines)
-    print(f"  Retained {len(lines)} lines after cleaning")
+    logger.info("  Retained %d lines after cleaning", len(lines))
 
     # Step 3: Create Jurnal node
     jurnal_id = str(uuid.uuid4())
@@ -731,27 +722,23 @@ def run_pipeline(pdf_path: str,
         file_hash=file_hash,
     )
 
-    # Step 4: Build Isi nodes (heuristic scoring + chunking dengan global counter)
-    print("Step 3: Building Isi nodes with heuristic subheading detection & chunking...")
+    # Step 4: Build Isi nodes
+    logger.info("Step 3: Building Isi nodes...")
     isi_nodes = build_isi_nodes(lines, jurnal.id)
-    print(f"  Created {len(isi_nodes)} Isi nodes")
-
-    # Distribution info
-    headings: Dict[str, int] = {}
-    for node in isi_nodes:
-        headings[node.sub_judul] = headings.get(node.sub_judul, 0) + 1
-    print(f"\n  Chunk distribution:")
-    for heading, count in sorted(headings.items(), key=lambda x: x[1], reverse=True):
-        print(f"    - {heading}: {count} chunk(s)")
+    logger.info("  Created %d Isi nodes", len(isi_nodes))
 
     # Step 5: Ingest to Neo4j
-    print(f"\nStep 4: Ingesting to Neo4j...")
+    logger.info("Step 4: Ingesting to Neo4j...")
     neo4j.ingest_jurnal(jurnal)
     neo4j.ingest_isi_nodes(isi_nodes)
 
-    # Step 6: Ingest to ChromaDB
-    print(f"\nStep 5: Ingesting to ChromaDB (contextualized embedding)...")
-    chroma.ingest_isi_nodes(isi_nodes, embedding_model, judul_jurnal=jurnal.judul)
+    # Step 6: Ingest to ChromaDB (pakai shared embedding model via lock)
+    logger.info("Step 5: Ingesting to ChromaDB (shared embedding model)...")
+    chroma.ingest_isi_nodes(isi_nodes, rag_models, judul_jurnal=jurnal.judul)
+
+    headings: Dict[str, int] = {}
+    for node in isi_nodes:
+        headings[node.sub_judul] = headings.get(node.sub_judul, 0) + 1
 
     return {
         "jurnal": jurnal,
@@ -760,8 +747,49 @@ def run_pipeline(pdf_path: str,
             "total_isi_nodes": len(isi_nodes),
             "unique_headings": len(headings),
             "avg_chunks_per_heading": len(isi_nodes) / len(headings) if headings else 0,
-        }
+        },
     }
+
+
+def run_pipeline_with_shared_resources(
+    pdf_path: str,
+    jurnal_metadata: Dict,
+) -> Optional[Dict]:
+    """
+    Entry point untuk service backend saat upload PDF via API.
+
+    Meminjam semua resource dari singleton yang sudah berjalan:
+      - RAGModels  → embedding model (shared, thread-safe via lock)
+      - Neo4j      → driver dari RAGPipeline
+      - ChromaDB   → client dari RAGPipeline
+
+    Tidak membuat koneksi atau model baru — zero VRAM overhead.
+
+    Dipanggil dari background thread di service backend (bukan dari main()),
+    sehingga aman untuk berjalan bersamaan dengan RAG query.
+    """
+    from pipeline import get_rag_pipeline
+
+    pipeline   = get_rag_pipeline()
+    rag_models = pipeline.models  # RAGModels singleton
+
+    # Neo4jIngestor membuat koneksi baru menggunakan CONFIG — URI tidak
+    # diambil dari internal driver pipeline karena struktur internal Neo4j
+    # driver berubah antar versi dan tidak stabil sebagai public API.
+    # ChromaIngestor membungkus client yang sudah ada.
+    neo4j = Neo4jIngestor(
+        uri      = CONFIG["neo4j_uri"],
+        user     = CONFIG["neo4j_user"],
+        password = CONFIG["neo4j_password"],
+    )
+    chroma = ChromaIngestor(persist_directory=CONFIG["chroma_path"])
+
+    try:
+        return run_pipeline(pdf_path, jurnal_metadata, rag_models, neo4j, chroma)
+    finally:
+        # Jangan close neo4j.driver di sini — itu koneksi baru yang dibuat Neo4jIngestor,
+        # bukan driver milik pipeline. Tapi kita tetap close agar tidak leak.
+        neo4j.close()
 
 ############################################################
 # MAIN
@@ -780,18 +808,24 @@ def main():
     parser.add_argument("--neo4j-password", default=CONFIG["neo4j_password"])
     parser.add_argument("--file", help="Process single PDF instead of entire dataset")
     parser.add_argument("--max-tokens", type=int, default=CONFIG["max_tokens_per_chunk"])
-    parser.add_argument("--force", action="store_true", 
+    parser.add_argument("--force", action="store_true",
                        help="Force reprocess even if file already exists (ignore hash check)")
     args = parser.parse_args()
 
     CONFIG["max_tokens_per_chunk"] = args.max_tokens
 
-    # Init models & connections
-    print("Initializing embedding model...")
-    embedding_model = EmbeddingModel()
+    # Saat dijalankan via CLI (standalone), RAGModels diinisialisasi di sini.
+    # Saat dipanggil oleh service backend, gunakan run_pipeline_with_shared_resources()
+    # agar tidak ada duplikasi model di VRAM.
+    print("Initializing RAGModels (embedding + reranker)...")
+    rag_models = RAGModels()
 
     print("Initializing Neo4j...")
-    neo4j = Neo4jIngestor(uri=args.neo4j_uri, user=args.neo4j_user, password=args.neo4j_password)
+    neo4j = Neo4jIngestor(
+        uri=args.neo4j_uri,
+        user=args.neo4j_user,
+        password=args.neo4j_password,
+    )
     neo4j.create_constraints()
 
     print("Initializing ChromaDB...")
@@ -814,36 +848,24 @@ def main():
         return
 
     print(f"\nFound {len(pdf_files)} PDF file(s) to process")
-    if args.force:
-        print("⚠️  Force mode: Akan memproses ulang semua file (abaikan hash check)")
 
     all_results = []
     skipped_files = 0
-    
+
     for pdf_file in pdf_files:
         try:
-            # Customize per file as needed
-            # TODO: Extract metadata from filename or external source
             jurnal_metadata = {
-                "judul": pdf_file.stem,  # Gunakan nama file sebagai judul default
-                "doi": None,
-                "penulis": "Unknown Author",
+                "judul":         pdf_file.stem,
+                "doi":           None,
+                "penulis":       "Unknown Author",
                 "tanggal_rilis": "2024",
             }
 
-            # Skip hash check jika force mode
             if args.force:
-                # Buat jurnal_id baru tanpa cek hash
                 file_hash = calculate_file_hash(str(pdf_file))
-                print(f"\n{'='*60}")
-                print(f"Force processing: {pdf_file}")
-                print(f"{'='*60}")
-                print(f"File hash (MD5): {file_hash}")
-                
-                # Langsung proses tanpa cek duplikasi
+                logger.info("Force processing: %s  hash=%s", pdf_file, file_hash)
                 lines = parse_pdf_to_lines(str(pdf_file))
                 lines = clean_lines(lines)
-                
                 jurnal_id = str(uuid.uuid4())
                 jurnal = JurnalNode(
                     id=jurnal_id,
@@ -854,27 +876,24 @@ def main():
                     source_file=str(pdf_file),
                     file_hash=file_hash,
                 )
-                
                 isi_nodes = build_isi_nodes(lines, jurnal.id)
-                
                 neo4j.ingest_jurnal(jurnal)
                 neo4j.ingest_isi_nodes(isi_nodes)
-                chroma.ingest_isi_nodes(isi_nodes, embedding_model, judul_jurnal=jurnal.judul)
-                
+                chroma.ingest_isi_nodes(isi_nodes, rag_models, judul_jurnal=jurnal.judul)
                 all_results.append({
                     "jurnal": jurnal,
                     "isi_nodes": isi_nodes,
-                    "stats": {"total_isi_nodes": len(isi_nodes)}
+                    "stats": {"total_isi_nodes": len(isi_nodes)},
                 })
             else:
-                # Normal mode dengan hash checking
-                result = run_pipeline(str(pdf_file), jurnal_metadata,
-                                      embedding_model, neo4j, chroma)
+                result = run_pipeline(
+                    str(pdf_file), jurnal_metadata, rag_models, neo4j, chroma
+                )
                 if result:
                     all_results.append(result)
                 else:
                     skipped_files += 1
-                    
+
         except Exception as e:
             print(f"Error processing {pdf_file}: {e}")
             import traceback
@@ -882,13 +901,12 @@ def main():
 
     neo4j.close()
 
-    # Summary
     print(f"\n{'='*60}")
     print("PIPELINE COMPLETE")
     print(f"{'='*60}")
-    print(f"Processed     : {len(all_results)} file(s)")
+    print(f"Processed       : {len(all_results)} file(s)")
     if skipped_files > 0:
-        print(f"Skipped       : {skipped_files} file(s) (already exist)")
+        print(f"Skipped         : {skipped_files} file(s) (already exist)")
     total_nodes = sum(r["stats"]["total_isi_nodes"] for r in all_results)
     print(f"Total Isi nodes : {total_nodes}")
     print(f"\nNeo4j   : {args.neo4j_uri}")

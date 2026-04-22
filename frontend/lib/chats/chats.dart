@@ -12,6 +12,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:file_picker/file_picker.dart';
 
 // ---------------------------------------------------------------------------
 // Greetings
@@ -34,7 +35,10 @@ const _kGreetings = [
 bool _isMobileDevice(BuildContext context) {
   final width = MediaQuery.of(context).size.width;
   // Web mobile atau aplikasi mobile (lebar < 768)
-  return width < 768 || (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS));
+  return width < 768 ||
+      (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS));
 }
 
 bool _isDesktopDevice(BuildContext context) {
@@ -77,7 +81,7 @@ class _ChatsPageState extends State<ChatsPage>
   String? _renamingTemp;
   String? _greeting;
 
-  final _inputCtrl  = TextEditingController();
+  final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _inputFocus = FocusNode();
 
@@ -85,9 +89,14 @@ class _ChatsPageState extends State<ChatsPage>
   void initState() {
     super.initState();
     _sidebarCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 250), value: 1.0);
-    _sidebarAnim =
-        CurvedAnimation(parent: _sidebarCtrl, curve: Curves.easeInOut);
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+      value: 1.0,
+    );
+    _sidebarAnim = CurvedAnimation(
+      parent: _sidebarCtrl,
+      curve: Curves.easeInOut,
+    );
 
     _chatService = ChatService(
       onForceLogout: _handleForceLogout,
@@ -137,43 +146,46 @@ class _ChatsPageState extends State<ChatsPage>
     final tracker = SseTracker(detailId: detailId);
     _trackers[detailId] = tracker;
 
-    tracker.sseSub = _chatService.subscribeToStream(detailId).listen(
-      (event) async {
-        if (!mounted) return;
+    tracker.sseSub = _chatService
+        .subscribeToStream(detailId)
+        .listen(
+          (event) async {
+            if (!mounted) return;
 
-        if (event.type == 'done' ||
-            event.type == 'error' ||
-            event.type == 'stopped') {
-          await _fetchAndApplyMessage(detailId);
-          _stopTracking(detailId);
-        } else if (event.type == 'timeout') {
-          _markDisconnected(detailId);
-          _stopTracking(detailId);
-        }
-        // 'waiting' dan heartbeat — no-op
-      },
-      onError: (error) {
-        if (mounted) _markDisconnected(detailId);
-        _stopTracking(detailId);
-      },
-      onDone: () {
-        if (mounted) {
-          final msg = _messages.firstWhere(
-            (m) => m.id == detailId,
-            orElse: () => ChatMessage(
-                id: detailId,
-                chatId: 0,
-                question: '',
-                response: '',
-                processingStatus: 'pending',
-                createdAt: ''),
-          );
-          if (msg.isPending) _markDisconnected(detailId);
-        }
-        _stopTracking(detailId);
-      },
-      cancelOnError: true,
-    );
+            if (event.type == 'done' ||
+                event.type == 'error' ||
+                event.type == 'stopped') {
+              await _fetchAndApplyMessage(detailId);
+              _stopTracking(detailId);
+            } else if (event.type == 'timeout') {
+              _markDisconnected(detailId);
+              _stopTracking(detailId);
+            }
+            // 'waiting' dan heartbeat — no-op
+          },
+          onError: (error) {
+            if (mounted) _markDisconnected(detailId);
+            _stopTracking(detailId);
+          },
+          onDone: () {
+            if (mounted) {
+              final msg = _messages.firstWhere(
+                (m) => m.id == detailId,
+                orElse: () => ChatMessage(
+                  id: detailId,
+                  chatId: 0,
+                  question: '',
+                  response: '',
+                  processingStatus: 'pending',
+                  createdAt: '',
+                ),
+              );
+              if (msg.isPending) _markDisconnected(detailId);
+            }
+            _stopTracking(detailId);
+          },
+          cancelOnError: true,
+        );
 
     // Fallback timeout 30 detik — fetch manual jika SSE tidak memberi sinyal
     Future.delayed(const Duration(seconds: 30), () {
@@ -181,12 +193,13 @@ class _ChatsPageState extends State<ChatsPage>
         final msg = _messages.firstWhere(
           (m) => m.id == detailId,
           orElse: () => ChatMessage(
-              id: detailId,
-              chatId: 0,
-              question: '',
-              response: '',
-              processingStatus: 'pending',
-              createdAt: ''),
+            id: detailId,
+            chatId: 0,
+            question: '',
+            response: '',
+            processingStatus: 'pending',
+            createdAt: '',
+          ),
         );
         if (msg.isPending) _fetchAndApplyMessage(detailId);
       }
@@ -236,7 +249,11 @@ class _ChatsPageState extends State<ChatsPage>
 
   Future<void> _fetchTopics() async {
     final topics = await _chatService.fetchTopics();
-    if (mounted) setState(() { _topics = topics; _loadingTopics = false; });
+    if (mounted)
+      setState(() {
+        _topics = topics;
+        _loadingTopics = false;
+      });
   }
 
   Future<void> _fetchProfile() async {
@@ -245,7 +262,10 @@ class _ChatsPageState extends State<ChatsPage>
   }
 
   Future<void> _fetchMessages(int chatId) async {
-    setState(() { _loadingMessages = true; _messages = []; });
+    setState(() {
+      _loadingMessages = true;
+      _messages = [];
+    });
 
     // fetchMessages return null jika error, [] jika berhasil tapi kosong
     final msgs = await _chatService.fetchMessages(chatId);
@@ -259,7 +279,10 @@ class _ChatsPageState extends State<ChatsPage>
       return;
     }
 
-    setState(() { _messages = msgs; _loadingMessages = false; });
+    setState(() {
+      _messages = msgs;
+      _loadingMessages = false;
+    });
     _scrollToBottom();
 
     // Recovery: pesan pending dari sesi sebelumnya → buka SSE ulang
@@ -272,64 +295,76 @@ class _ChatsPageState extends State<ChatsPage>
 
   void _pickGreeting() {
     setState(
-        () => _greeting = _kGreetings[Random().nextInt(_kGreetings.length)]);
+      () => _greeting = _kGreetings[Random().nextInt(_kGreetings.length)],
+    );
   }
 
   void _newChat() {
     _cancelAllTrackers();
     _pickGreeting();
-    setState(
-        () { _activeChatId = null; _messages = []; _pendingQuestion = null; });
+    setState(() {
+      _activeChatId = null;
+      _messages = [];
+      _pendingQuestion = null;
+    });
   }
 
   void _selectTopic(ChatTopic topic) {
     _cancelAllTrackers();
     setState(() {
-      _activeChatId    = topic.id;
-      _greeting        = null;
+      _activeChatId = topic.id;
+      _greeting = null;
       _pendingQuestion = null;
     });
     _fetchMessages(topic.id);
     if (MediaQuery.of(context).size.width < 768) _toggleSidebar();
   }
 
-  Future<void> _sendMessage(
-      {String? overrideText, int? replaceDetailId}) async {
+  Future<void> _sendMessage({
+    String? overrideText,
+    int? replaceDetailId,
+  }) async {
     final text = overrideText ?? _inputCtrl.text.trim();
     if (text.isEmpty || _sending) return;
 
     if (overrideText == null) _inputCtrl.clear();
     setState(() {
-      _sending         = true;
+      _sending = true;
       _pendingQuestion = replaceDetailId == null ? text : null;
     });
     _scrollToBottom();
 
     final msg = await _chatService.sendMessage(
-      chatId  : _activeChatId,
+      chatId: _activeChatId,
       question: text,
     );
 
     if (msg == null) {
-      setState(() { _pendingQuestion = null; _sending = false; });
+      setState(() {
+        _pendingQuestion = null;
+        _sending = false;
+      });
       _showSnack('Gagal mengirim pesan. Coba lagi.');
       return;
     }
 
     if (_activeChatId == null) {
       setState(() {
-        _activeChatId    = msg.chatId;
-        _greeting        = null;
+        _activeChatId = msg.chatId;
+        _greeting = null;
         _pendingQuestion = null;
         _messages.add(msg);
-        _sending         = false;
+        _sending = false;
       });
       await _fetchTopics();
     } else if (replaceDetailId != null) {
       final idx = _messages.indexWhere((m) => m.id == replaceDetailId);
       setState(() {
         _pendingQuestion = null;
-        if (idx != -1) _messages[idx] = msg; else _messages.add(msg);
+        if (idx != -1)
+          _messages[idx] = msg;
+        else
+          _messages.add(msg);
         _sending = false;
       });
     } else {
@@ -342,6 +377,29 @@ class _ChatsPageState extends State<ChatsPage>
 
     _scrollToBottom();
     _startTracking(msg.id);
+  }
+
+  Future<void> _uploadPdf(Uint8List bytes, String fileName) async {
+    final result = await _chatService.uploadPdf(
+      fileBytes: bytes,
+      fileName:  fileName,
+    );
+    if (!mounted) return;
+    final success = result?['success'] == true;
+    final message = success
+        ? 'PDF "$fileName" diterima dan sedang diproses. Mungkin perlu beberapa saat untuk bot bisa menjawab pertanyaan terkait informasi baru'
+        : (result?['detail'] as String? ??
+           result?['message'] as String? ??
+           'Gagal mengunggah file. Coba lagi.');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: GoogleFonts.poppins(fontSize: 13)),
+        backgroundColor:
+            success ? const Color(0xFF16DB65) : const Color(0xFFFF4444),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
   }
 
   Future<void> _editMessage(ChatMessage msg, String newQuestion) async {
@@ -398,7 +456,7 @@ class _ChatsPageState extends State<ChatsPage>
       return;
     }
     _showSnack('Memuat suara...');
-    
+
     try {
       await _chatService.playTTS(msg.id);
     } catch (e) {
@@ -417,8 +475,8 @@ class _ChatsPageState extends State<ChatsPage>
       setState(() {
         _topics.removeWhere((t) => t.id == topic.id);
         if (_activeChatId == topic.id) {
-          _activeChatId    = null;
-          _messages        = [];
+          _activeChatId = null;
+          _messages = [];
           _pendingQuestion = null;
           _pickGreeting();
         }
@@ -433,7 +491,10 @@ class _ChatsPageState extends State<ChatsPage>
     if (trimmed.isEmpty) return;
     final success = await _chatService.renameTopic(topic.id, trimmed);
     if (success) {
-      setState(() { topic.title = trimmed; _renamingId = null; });
+      setState(() {
+        topic.title = trimmed;
+        _renamingId = null;
+      });
     } else {
       _showSnack('Gagal mengganti judul.');
     }
@@ -450,7 +511,7 @@ class _ChatsPageState extends State<ChatsPage>
         _scrollCtrl.animateTo(
           _scrollCtrl.position.maxScrollExtent,
           duration: const Duration(milliseconds: 300),
-          curve   : Curves.easeOut,
+          curve: Curves.easeOut,
         );
       }
     });
@@ -458,12 +519,14 @@ class _ChatsPageState extends State<ChatsPage>
 
   void _showSnack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content        : Text(msg, style: GoogleFonts.poppins(fontSize: 13)),
-      backgroundColor: const Color(0xFF111111),
-      behavior       : SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, style: GoogleFonts.poppins(fontSize: 13)),
+        backgroundColor: const Color(0xFF111111),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -471,8 +534,9 @@ class _ChatsPageState extends State<ChatsPage>
   @override
   Widget build(BuildContext context) {
     // Ambil detail_id pertama yang sedang pending (untuk tombol stop)
-    final int? pendingDetailId =
-        _trackers.isNotEmpty ? _trackers.keys.first : null;
+    final int? pendingDetailId = _trackers.isNotEmpty
+        ? _trackers.keys.first
+        : null;
 
     return Scaffold(
       backgroundColor: const Color(0xFF020202),
@@ -480,49 +544,55 @@ class _ChatsPageState extends State<ChatsPage>
         children: [
           SizeTransition(
             sizeFactor: _sidebarAnim,
-            axis      : Axis.horizontal,
+            axis: Axis.horizontal,
             child: ChatSidebar(
-              topics         : _topics,
-              loading        : _loadingTopics,
-              activeChatId   : _activeChatId,
-              profile        : _profile,
-              renamingId     : _renamingId,
-              renamingTemp   : _renamingTemp,
-              onNewChat      : _newChat,
-              onSelectTopic  : _selectTopic,
-              onDeleteTopic  : _deleteTopic,
-              onStartRename  : (t) => setState(
-                  () { _renamingId = t.id; _renamingTemp = t.title; }),
+              topics: _topics,
+              loading: _loadingTopics,
+              activeChatId: _activeChatId,
+              profile: _profile,
+              renamingId: _renamingId,
+              renamingTemp: _renamingTemp,
+              onNewChat: _newChat,
+              onSelectTopic: _selectTopic,
+              onDeleteTopic: _deleteTopic,
+              onStartRename: (t) => setState(() {
+                _renamingId = t.id;
+                _renamingTemp = t.title;
+              }),
               onConfirmRename: (t, v) => _renameTopic(t, v),
-              onCancelRename : () => setState(() => _renamingId = null),
-              onRenameChange : (v) => setState(() => _renamingTemp = v),
-              onProfileTap   : () => context.go('/user_profile'),
-              onLogout       : _logout,
+              onCancelRename: () => setState(() => _renamingId = null),
+              onRenameChange: (v) => setState(() => _renamingTemp = v),
+              onProfileTap: () => context.go('/user_profile'),
+              onLogout: _logout,
             ),
           ),
           Expanded(
             child: Column(
               children: [
                 _ChatTopBar(
-                  sidebarOpen    : _sidebarOpen,
+                  sidebarOpen: _sidebarOpen,
                   onToggleSidebar: _toggleSidebar,
                   title: _activeChatId != null
                       ? _topics
-                          .firstWhere(
-                            (t) => t.id == _activeChatId,
-                            orElse: () =>
-                                ChatTopic(id: 0, title: 'Chat', createdAt: ''),
-                          )
-                          .title
+                            .firstWhere(
+                              (t) => t.id == _activeChatId,
+                              orElse: () => ChatTopic(
+                                id: 0,
+                                title: 'Chat',
+                                createdAt: '',
+                              ),
+                            )
+                            .title
                       : 'Chat Baru',
                   hasPending: _trackers.isNotEmpty,
                 ),
                 Expanded(child: _buildBody()),
                 _InputBar(
-                  controller    : _inputCtrl,
-                  focusNode     : _inputFocus,
-                  sending       : _sending,
-                  onSend        : () => _sendMessage(),
+                  controller: _inputCtrl,
+                  focusNode: _inputFocus,
+                  sending: _sending,
+                  onSend: () => _sendMessage(),
+                  onUploadPdf: _uploadPdf,
                   pendingDetailId: pendingDetailId,
                   onStop: pendingDetailId != null
                       ? () => _stopGeneration(pendingDetailId)
@@ -539,8 +609,11 @@ class _ChatsPageState extends State<ChatsPage>
   Widget _buildBody() {
     if (_loadingMessages) {
       return const Center(
-          child: CircularProgressIndicator(
-              color: Color(0xFF16DB65), strokeWidth: 2));
+        child: CircularProgressIndicator(
+          color: Color(0xFF16DB65),
+          strokeWidth: 2,
+        ),
+      );
     }
     if (_activeChatId == null &&
         _messages.isEmpty &&
@@ -549,16 +622,16 @@ class _ChatsPageState extends State<ChatsPage>
     }
     if (_messages.isEmpty && _pendingQuestion == null) {
       return const _GreetingView(
-          greeting: 'Topik ini masih kosong. Mulai percakapan! 💬');
+        greeting: 'Topik ini masih kosong. Mulai percakapan! 💬',
+      );
     }
 
-    final itemCount =
-        _messages.length + (_pendingQuestion != null ? 1 : 0);
+    final itemCount = _messages.length + (_pendingQuestion != null ? 1 : 0);
 
     return ListView.builder(
       controller: _scrollCtrl,
-      padding   : const EdgeInsets.fromLTRB(24, 24, 24, 8),
-      itemCount : itemCount,
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+      itemCount: itemCount,
       itemBuilder: (_, i) {
         if (_pendingQuestion != null && i == _messages.length) {
           return _PendingBubble(question: _pendingQuestion!);
@@ -572,19 +645,19 @@ class _ChatsPageState extends State<ChatsPage>
 
         if (msg.isDisconnected) {
           return _DisconnectedBubble(
-            message : msg,
+            message: msg,
             onResend: () => _resendMessage(msg),
           );
         }
 
         // done / failed / stopped — semua masuk _MessagePair
         return _MessagePair(
-          message        : msg,
-          onEdit         : (newQ) => _editMessage(msg, newQ),
-          onRegenerate   : () => _regenerateResponse(msg),
-          onCopyQuestion : () => _copyText(msg.question),
-          onCopyAnswer   : () => _copyText(msg.response),
-          onTTS          : () => _playTTS(msg),
+          message: msg,
+          onEdit: (newQ) => _editMessage(msg, newQ),
+          onRegenerate: () => _regenerateResponse(msg),
+          onCopyQuestion: () => _copyText(msg.question),
+          onCopyAnswer: () => _copyText(msg.response),
+          onTTS: () => _playTTS(msg),
         );
       },
     );
@@ -603,18 +676,18 @@ class _ChatTopBar extends StatelessWidget {
     required this.hasPending,
   });
 
-  final bool         sidebarOpen;
+  final bool sidebarOpen;
   final VoidCallback onToggleSidebar;
-  final String       title;
-  final bool         hasPending;
+  final String title;
+  final bool hasPending;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height : 56,
+      height: 56,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: const BoxDecoration(
-        color : Color(0xFF0D0D0D),
+        color: Color(0xFF0D0D0D),
         border: Border(bottom: BorderSide(color: Color(0xFF1A1A1A))),
       ),
       child: Row(
@@ -622,19 +695,17 @@ class _ChatTopBar extends StatelessWidget {
           Tooltip(
             message: sidebarOpen ? 'Sembunyikan Sidebar' : 'Tampilkan Sidebar',
             child: InkWell(
-              onTap        : onToggleSidebar,
-              borderRadius : BorderRadius.circular(8),
+              onTap: onToggleSidebar,
+              borderRadius: BorderRadius.circular(8),
               child: Container(
                 padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
-                  border      : Border.all(color: const Color(0xFF1A1A1A)),
+                  border: Border.all(color: const Color(0xFF1A1A1A)),
                 ),
                 child: Icon(
-                  sidebarOpen
-                      ? Icons.menu_open_rounded
-                      : Icons.menu_rounded,
-                  size : 18,
+                  sidebarOpen ? Icons.menu_open_rounded : Icons.menu_rounded,
+                  size: 18,
                   color: const Color(0xFFA3A3A3),
                 ),
               ),
@@ -644,12 +715,13 @@ class _ChatTopBar extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              maxLines : 1,
-              overflow : TextOverflow.ellipsis,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: GoogleFonts.poppins(
-                  fontSize  : 14,
-                  fontWeight: FontWeight.w600,
-                  color     : Colors.white),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
             ),
           ),
           if (hasPending) ...[
@@ -664,9 +736,10 @@ class _ChatTopBar extends StatelessWidget {
                   Text(
                     'Memproses',
                     style: GoogleFonts.poppins(
-                        fontSize  : 11,
-                        color     : const Color(0xFF16DB65),
-                        fontWeight: FontWeight.w500),
+                      fontSize: 11,
+                      color: const Color(0xFF16DB65),
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ],
               ),
@@ -691,24 +764,29 @@ class _PulsingDotState extends State<_PulsingDot>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync   : this,
-        duration: const Duration(milliseconds: 800))
-      ..repeat(reverse: true);
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
   }
 
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => FadeTransition(
-        opacity: _ctrl,
-        child: Container(
-          width : 7,
-          height: 7,
-          decoration: const BoxDecoration(
-              color: Color(0xFF16DB65), shape: BoxShape.circle),
-        ),
-      );
+    opacity: _ctrl,
+    child: Container(
+      width: 7,
+      height: 7,
+      decoration: const BoxDecoration(
+        color: Color(0xFF16DB65),
+        shape: BoxShape.circle,
+      ),
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -728,34 +806,41 @@ class _GreetingView extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width : 64,
+              width: 64,
               height: 64,
               decoration: BoxDecoration(
-                color : const Color(0x3316DB65),
-                shape : BoxShape.circle,
+                color: const Color(0x3316DB65),
+                shape: BoxShape.circle,
                 border: Border.all(
-                    color: const Color(0xFF16DB65).withOpacity(0.4),
-                    width: 1.5),
+                  color: const Color(0xFF16DB65).withOpacity(0.4),
+                  width: 1.5,
+                ),
               ),
-              child: const Icon(Icons.eco_rounded,
-                  color: Color(0xFF16DB65), size: 30),
+              child: const Icon(
+                Icons.eco_rounded,
+                color: Color(0xFF16DB65),
+                size: 30,
+              ),
             ),
             const SizedBox(height: 20),
             Text(
               greeting,
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
-                  fontSize  : 16,
-                  fontWeight: FontWeight.w500,
-                  color     : Colors.white,
-                  height    : 1.6),
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+                color: Colors.white,
+                height: 1.6,
+              ),
             ),
             const SizedBox(height: 10),
             Text(
               'Ketik pertanyaan Anda di bawah untuk memulai.',
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
-                  fontSize: 13, color: const Color(0xFFA3A3A3)),
+                fontSize: 13,
+                color: const Color(0xFFA3A3A3),
+              ),
             ),
           ],
         ),
@@ -778,12 +863,12 @@ class _MessagePair extends StatefulWidget {
     required this.onTTS,
   });
 
-  final ChatMessage            message;
-  final void Function(String)  onEdit;
-  final VoidCallback           onRegenerate;
-  final VoidCallback           onCopyQuestion;
-  final VoidCallback           onCopyAnswer;
-  final VoidCallback           onTTS;
+  final ChatMessage message;
+  final void Function(String) onEdit;
+  final VoidCallback onRegenerate;
+  final VoidCallback onCopyQuestion;
+  final VoidCallback onCopyAnswer;
+  final VoidCallback onTTS;
 
   @override
   State<_MessagePair> createState() => _MessagePairState();
@@ -794,7 +879,7 @@ class _MessagePairState extends State<_MessagePair> {
 
   void _showQuestionActions(BuildContext context) {
     final isMobile = _isMobileDevice(context);
-    
+
     if (isMobile) {
       // Mobile: show bottom sheet
       showModalBottomSheet(
@@ -818,16 +903,28 @@ class _MessagePairState extends State<_MessagePair> {
               ),
               const SizedBox(height: 16),
               ListTile(
-                leading: const Icon(Icons.edit_outlined, color: Color(0xFF16DB65)),
-                title: Text('Edit pertanyaan', style: GoogleFonts.poppins(color: Colors.white)),
+                leading: const Icon(
+                  Icons.edit_outlined,
+                  color: Color(0xFF16DB65),
+                ),
+                title: Text(
+                  'Edit pertanyaan',
+                  style: GoogleFonts.poppins(color: Colors.white),
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
                   _showEditDialog(context);
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.copy_rounded, color: Color(0xFF16DB65)),
-                title: Text('Salin pertanyaan', style: GoogleFonts.poppins(color: Colors.white)),
+                leading: const Icon(
+                  Icons.copy_rounded,
+                  color: Color(0xFF16DB65),
+                ),
+                title: Text(
+                  'Salin pertanyaan',
+                  style: GoogleFonts.poppins(color: Colors.white),
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
                   widget.onCopyQuestion();
@@ -916,10 +1013,10 @@ class _MessagePairState extends State<_MessagePair> {
             _ErrorBubble(text: msg.response)
           else if (msg.isStopped)
             _StoppedBubble(
-              response    : msg.response,
+              response: msg.response,
               onRegenerate: widget.onRegenerate,
               onCopyAnswer: widget.onCopyAnswer,
-              onTTS       : widget.onTTS,
+              onTTS: widget.onTTS,
             )
           else
             // status 'done' — jawaban lengkap
@@ -951,45 +1048,54 @@ class _MessagePairState extends State<_MessagePair> {
         title: Text(
           'Edit Pertanyaan',
           style: GoogleFonts.poppins(
-              fontSize  : 15,
-              fontWeight: FontWeight.w600,
-              color     : Colors.white),
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: Colors.white,
+          ),
         ),
         content: SizedBox(
           width: 480,
           child: TextField(
-            controller : ctrl,
-            autofocus  : true,
-            maxLines   : null,
-            style      : GoogleFonts.poppins(fontSize: 14, color: Colors.white),
+            controller: ctrl,
+            autofocus: true,
+            maxLines: null,
+            style: GoogleFonts.poppins(fontSize: 14, color: Colors.white),
             cursorColor: const Color(0xFF16DB65),
-            decoration : InputDecoration(
-              filled     : true,
-              fillColor  : const Color(0xFF1A1A1A),
-              border     : OutlineInputBorder(
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: const Color(0xFF1A1A1A),
+              border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide  : const BorderSide(color: Color(0xFF2A2A2A))),
+                borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+              ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide  : const BorderSide(color: Color(0xFF2A2A2A))),
+                borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+              ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide  : const BorderSide(
-                    color: Color(0xFF16DB65), width: 1.5)),
+                borderSide: const BorderSide(
+                  color: Color(0xFF16DB65),
+                  width: 1.5,
+                ),
+              ),
             ),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text('Batal',
-                style:
-                    GoogleFonts.poppins(color: const Color(0xFFA3A3A3)))),
+            child: Text(
+              'Batal',
+              style: GoogleFonts.poppins(color: const Color(0xFFA3A3A3)),
+            ),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF16DB65),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8)),
+                borderRadius: BorderRadius.circular(8),
+              ),
               elevation: 0,
             ),
             onPressed: () {
@@ -1002,8 +1108,9 @@ class _MessagePairState extends State<_MessagePair> {
             child: Text(
               'Simpan',
               style: GoogleFonts.poppins(
-                  color     : Colors.black,
-                  fontWeight: FontWeight.w600),
+                color: Colors.black,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -1077,7 +1184,9 @@ class _AnswerActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(left: 40), // align dengan AI bubble content
+      padding: const EdgeInsets.only(
+        left: 40,
+      ), // align dengan AI bubble content
       child: Row(
         children: [
           _ActionChip(
@@ -1086,11 +1195,7 @@ class _AnswerActions extends StatelessWidget {
             onTap: onRegenerate,
           ),
           const SizedBox(width: 8),
-          _ActionChip(
-            icon: Icons.copy_rounded,
-            label: 'Salin',
-            onTap: onCopy,
-          ),
+          _ActionChip(icon: Icons.copy_rounded, label: 'Salin', onTap: onCopy),
           const SizedBox(width: 8),
           _ActionChip(
             icon: Icons.volume_up_rounded,
@@ -1118,20 +1223,23 @@ class _PendingBubble extends StatefulWidget {
 class _PendingBubbleState extends State<_PendingBubble>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
-  late final Animation<double>   _anim;
+  late final Animation<double> _anim;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync   : this,
-        duration: const Duration(milliseconds: 900))
-      ..repeat(reverse: true);
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
     _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
   }
 
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1142,43 +1250,49 @@ class _PendingBubbleState extends State<_PendingBubble>
         children: [
           _UserBubble(text: widget.question),
           const SizedBox(height: 12),
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            _AiAvatar(),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color      : const Color(0xFF111111),
-                borderRadius: const BorderRadius.only(
-                  topLeft    : Radius.circular(4),
-                  topRight   : Radius.circular(16),
-                  bottomLeft : Radius.circular(16),
-                  bottomRight: Radius.circular(16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _AiAvatar(),
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
                 ),
-                border: Border.all(color: const Color(0xFF1A1A1A)),
-              ),
-              child: FadeTransition(
-                opacity: _anim,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(
-                    3,
-                    (i) => Padding(
-                      padding: EdgeInsets.only(left: i == 0 ? 0 : 5),
-                      child: Container(
-                        width : 7,
-                        height: 7,
-                        decoration: const BoxDecoration(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF111111),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(4),
+                    topRight: Radius.circular(16),
+                    bottomLeft: Radius.circular(16),
+                    bottomRight: Radius.circular(16),
+                  ),
+                  border: Border.all(color: const Color(0xFF1A1A1A)),
+                ),
+                child: FadeTransition(
+                  opacity: _anim,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(
+                      3,
+                      (i) => Padding(
+                        padding: EdgeInsets.only(left: i == 0 ? 0 : 5),
+                        child: Container(
+                          width: 7,
+                          height: 7,
+                          decoration: const BoxDecoration(
                             color: Color(0xFF16DB65),
-                            shape: BoxShape.circle),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ]),
+            ],
+          ),
         ],
       ),
     );
@@ -1190,9 +1304,8 @@ class _PendingBubbleState extends State<_PendingBubble>
 // ---------------------------------------------------------------------------
 
 class _DisconnectedBubble extends StatelessWidget {
-  const _DisconnectedBubble(
-      {required this.message, required this.onResend});
-  final ChatMessage  message;
+  const _DisconnectedBubble({required this.message, required this.onResend});
+  final ChatMessage message;
   final VoidCallback onResend;
 
   @override
@@ -1204,80 +1317,97 @@ class _DisconnectedBubble extends StatelessWidget {
         children: [
           _UserBubble(text: message.question),
           const SizedBox(height: 12),
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Container(
-              width : 30,
-              height: 30,
-              decoration: BoxDecoration(
-                shape : BoxShape.circle,
-                color : const Color(0x33FF9800),
-                border: Border.all(
-                    color: const Color(0xFFFF9800).withOpacity(0.4)),
-              ),
-              child: const Icon(Icons.wifi_off_rounded,
-                  color: Color(0xFFFF9800), size: 15),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 30,
+                height: 30,
                 decoration: BoxDecoration(
-                  color      : const Color(0xFF1A1200),
-                  borderRadius: const BorderRadius.only(
-                    topLeft    : Radius.circular(4),
-                    topRight   : Radius.circular(16),
-                    bottomLeft : Radius.circular(16),
-                    bottomRight: Radius.circular(16),
-                  ),
+                  shape: BoxShape.circle,
+                  color: const Color(0x33FF9800),
                   border: Border.all(
-                      color: const Color(0xFFFF9800).withOpacity(0.3)),
+                    color: const Color(0xFFFF9800).withOpacity(0.4),
+                  ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Koneksi terputus sebelum jawaban diterima.',
-                      style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          color   : const Color(0xFFFFB74D),
-                          height  : 1.5),
+                child: const Icon(
+                  Icons.wifi_off_rounded,
+                  color: Color(0xFFFF9800),
+                  size: 15,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A1200),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(4),
+                      topRight: Radius.circular(16),
+                      bottomLeft: Radius.circular(16),
+                      bottomRight: Radius.circular(16),
                     ),
-                    const SizedBox(height: 10),
-                    GestureDetector(
-                      onTap: onResend,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color       : const Color(0xFF2A1A00),
-                          borderRadius: BorderRadius.circular(8),
-                          border      : Border.all(
-                              color: const Color(0xFFFF9800)
-                                  .withOpacity(0.5)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.refresh_rounded,
-                                color: Color(0xFFFF9800), size: 14),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Kirim ulang pertanyaan',
-                              style: GoogleFonts.poppins(
-                                  fontSize  : 12,
-                                  color     : const Color(0xFFFF9800),
-                                  fontWeight: FontWeight.w500),
-                            ),
-                          ],
+                    border: Border.all(
+                      color: const Color(0xFFFF9800).withOpacity(0.3),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Koneksi terputus sebelum jawaban diterima.',
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          color: const Color(0xFFFFB74D),
+                          height: 1.5,
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 10),
+                      GestureDetector(
+                        onTap: onResend,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2A1A00),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: const Color(0xFFFF9800).withOpacity(0.5),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.refresh_rounded,
+                                color: Color(0xFFFF9800),
+                                size: 14,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Kirim ulang pertanyaan',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  color: const Color(0xFFFF9800),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ]),
+            ],
+          ),
         ],
       ),
     );
@@ -1295,8 +1425,8 @@ class _StoppedBubble extends StatelessWidget {
     required this.onCopyAnswer,
     required this.onTTS,
   });
-  
-  final String       response;
+
+  final String response;
   final VoidCallback onRegenerate;
   final VoidCallback onCopyAnswer;
   final VoidCallback onTTS;
@@ -1306,60 +1436,72 @@ class _StoppedBubble extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _AiAvatar(),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color      : const Color(0xFF111111),
-                borderRadius: const BorderRadius.only(
-                  topLeft    : Radius.circular(4),
-                  topRight   : Radius.circular(16),
-                  bottomLeft : Radius.circular(16),
-                  bottomRight: Radius.circular(16),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _AiAvatar(),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
                 ),
-                border: Border.all(color: const Color(0xFF2A2A2A)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Partial response jika ada
-                  if (response.isNotEmpty) ...[
-                    MarkdownBody(
-                      data          : response,
-                      selectable    : true,
-                      extensionSet  : md.ExtensionSet.gitHubWeb,
-                      onTapLink     : (text, href, title) {
-                        if (href != null) launchUrl(Uri.parse(href));
-                      },
-                      styleSheet: _markdownStyleSheet(),
-                    ),
-                    const Divider(
-                        color : Color(0xFF2A2A2A),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF111111),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(4),
+                    topRight: Radius.circular(16),
+                    bottomLeft: Radius.circular(16),
+                    bottomRight: Radius.circular(16),
+                  ),
+                  border: Border.all(color: const Color(0xFF2A2A2A)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Partial response jika ada
+                    if (response.isNotEmpty) ...[
+                      MarkdownBody(
+                        data: response,
+                        selectable: true,
+                        extensionSet: md.ExtensionSet.gitHubWeb,
+                        onTapLink: (text, href, title) {
+                          if (href != null) launchUrl(Uri.parse(href));
+                        },
+                        styleSheet: _markdownStyleSheet(),
+                      ),
+                      const Divider(
+                        color: Color(0xFF2A2A2A),
                         height: 20,
-                        thickness: 1),
-                  ],
-
-                  // Label stopped
-                  Row(
-                    children: [
-                      const Icon(Icons.stop_circle_outlined,
-                          color: Color(0xFFA3A3A3), size: 14),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Generate dihentikan',
-                        style: GoogleFonts.poppins(
-                            fontSize: 12, color: const Color(0xFFA3A3A3)),
+                        thickness: 1,
                       ),
                     ],
-                  ),
-                ],
+
+                    // Label stopped
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.stop_circle_outlined,
+                          color: Color(0xFFA3A3A3),
+                          size: 14,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Generate dihentikan',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: const Color(0xFFA3A3A3),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ]),
+          ],
+        ),
         const SizedBox(height: 8),
         // Answer actions
         Padding(
@@ -1397,63 +1539,72 @@ class _StoppedBubble extends StatelessWidget {
 
 MarkdownStyleSheet _markdownStyleSheet() {
   return MarkdownStyleSheet(
-    p     : GoogleFonts.poppins(
-        fontSize: 14, color: Colors.white, height: 1.7),
+    p: GoogleFonts.poppins(fontSize: 14, color: Colors.white, height: 1.7),
     strong: GoogleFonts.poppins(
-        fontSize  : 14,
-        color     : Colors.white,
-        fontWeight: FontWeight.w600),
-    em    : GoogleFonts.poppins(
-        fontSize : 14,
-        color    : Colors.white,
-        fontStyle: FontStyle.italic),
-    h1    : GoogleFonts.poppins(
-        fontSize  : 20,
-        color     : Colors.white,
-        fontWeight: FontWeight.w700,
-        height    : 1.4),
-    h2    : GoogleFonts.poppins(
-        fontSize  : 17,
-        color     : Colors.white,
-        fontWeight: FontWeight.w600,
-        height    : 1.4),
-    h3    : GoogleFonts.poppins(
-        fontSize  : 15,
-        color     : Colors.white,
-        fontWeight: FontWeight.w600,
-        height    : 1.4),
-    code  : GoogleFonts.sourceCodePro(
-        fontSize       : 13,
-        color          : const Color(0xFF16DB65),
-        backgroundColor: const Color(0xFF1A2A1A)),
+      fontSize: 14,
+      color: Colors.white,
+      fontWeight: FontWeight.w600,
+    ),
+    em: GoogleFonts.poppins(
+      fontSize: 14,
+      color: Colors.white,
+      fontStyle: FontStyle.italic,
+    ),
+    h1: GoogleFonts.poppins(
+      fontSize: 20,
+      color: Colors.white,
+      fontWeight: FontWeight.w700,
+      height: 1.4,
+    ),
+    h2: GoogleFonts.poppins(
+      fontSize: 17,
+      color: Colors.white,
+      fontWeight: FontWeight.w600,
+      height: 1.4,
+    ),
+    h3: GoogleFonts.poppins(
+      fontSize: 15,
+      color: Colors.white,
+      fontWeight: FontWeight.w600,
+      height: 1.4,
+    ),
+    code: GoogleFonts.sourceCodePro(
+      fontSize: 13,
+      color: const Color(0xFF16DB65),
+      backgroundColor: const Color(0xFF1A2A1A),
+    ),
     codeblockDecoration: BoxDecoration(
-      color       : const Color(0xFF0A1A0A),
+      color: const Color(0xFF0A1A0A),
       borderRadius: BorderRadius.circular(8),
-      border      : Border.all(
-          color: const Color(0xFF16DB65).withOpacity(0.2)),
+      border: Border.all(color: const Color(0xFF16DB65).withOpacity(0.2)),
     ),
     codeblockPadding: const EdgeInsets.all(14),
-    listBullet      : GoogleFonts.poppins(
-        fontSize: 14, color: const Color(0xFF16DB65)),
+    listBullet: GoogleFonts.poppins(
+      fontSize: 14,
+      color: const Color(0xFF16DB65),
+    ),
     listIndent: 20,
     blockquote: GoogleFonts.poppins(
-        fontSize  : 14,
-        color     : const Color(0xFFCCCCCC),
-        fontStyle : FontStyle.italic,
-        height    : 1.6),
+      fontSize: 14,
+      color: const Color(0xFFCCCCCC),
+      fontStyle: FontStyle.italic,
+      height: 1.6,
+    ),
     blockquoteDecoration: BoxDecoration(
       border: Border(
-          left: BorderSide(
-              color: const Color(0xFF16DB65).withOpacity(0.5),
-              width: 3)),
+        left: BorderSide(
+          color: const Color(0xFF16DB65).withOpacity(0.5),
+          width: 3,
+        ),
+      ),
     ),
     blockquotePadding: const EdgeInsets.only(left: 12),
     a: GoogleFonts.poppins(
-        fontSize      : 14,
-        color         : const Color(0xFF16DB65),
-        decoration    : TextDecoration.underline,
-        decorationColor:
-            const Color(0xFF16DB65).withOpacity(0.5)),
+      fontSize: 14,
+      color: const Color(0xFF16DB65),
+      decoration: TextDecoration.underline,
+      decorationColor: const Color(0xFF16DB65).withOpacity(0.5),
+    ),
   );
 }
 
@@ -1464,17 +1615,15 @@ MarkdownStyleSheet _markdownStyleSheet() {
 class _AiAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
-        width : 30,
-        height: 30,
-        decoration: BoxDecoration(
-          shape : BoxShape.circle,
-          color : const Color(0x3316DB65),
-          border: Border.all(
-              color: const Color(0xFF16DB65).withOpacity(0.4)),
-        ),
-        child: const Icon(Icons.eco_rounded,
-            color: Color(0xFF16DB65), size: 15),
-      );
+    width: 30,
+    height: 30,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      color: const Color(0x3316DB65),
+      border: Border.all(color: const Color(0xFF16DB65).withOpacity(0.4)),
+    ),
+    child: const Icon(Icons.eco_rounded, color: Color(0xFF16DB65), size: 15),
+  );
 }
 
 class _UserBubble extends StatelessWidget {
@@ -1487,23 +1636,26 @@ class _UserBubble extends StatelessWidget {
       alignment: Alignment.centerRight,
       child: Container(
         constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.65),
+          maxWidth: MediaQuery.of(context).size.width * 0.65,
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color      : const Color(0x3316DB65),
+          color: const Color(0x3316DB65),
           borderRadius: const BorderRadius.only(
-            topLeft    : Radius.circular(16),
-            topRight   : Radius.circular(16),
-            bottomLeft : Radius.circular(16),
+            topLeft: Radius.circular(16),
+            topRight: Radius.circular(16),
+            bottomLeft: Radius.circular(16),
             bottomRight: Radius.circular(4),
           ),
-          border: Border.all(
-              color: const Color(0xFF16DB65).withOpacity(0.25)),
+          border: Border.all(color: const Color(0xFF16DB65).withOpacity(0.25)),
         ),
         child: Text(
           text,
           style: GoogleFonts.poppins(
-              fontSize: 14, color: Colors.white, height: 1.6),
+            fontSize: 14,
+            color: Colors.white,
+            height: 1.6,
+          ),
         ),
       ),
     );
@@ -1516,35 +1668,37 @@ class _AiBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _AiAvatar(),
-      const SizedBox(width: 10),
-      Expanded(
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color      : const Color(0xFF111111),
-            borderRadius: const BorderRadius.only(
-              topLeft    : Radius.circular(4),
-              topRight   : Radius.circular(16),
-              bottomLeft : Radius.circular(16),
-              bottomRight: Radius.circular(16),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _AiAvatar(),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF111111),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(4),
+                topRight: Radius.circular(16),
+                bottomLeft: Radius.circular(16),
+                bottomRight: Radius.circular(16),
+              ),
+              border: Border.all(color: const Color(0xFF1A1A1A)),
             ),
-            border: Border.all(color: const Color(0xFF1A1A1A)),
-          ),
-          child: MarkdownBody(
-            data        : text,
-            selectable  : true,
-            extensionSet: md.ExtensionSet.gitHubWeb,
-            onTapLink   : (text, href, title) {
-              if (href != null) launchUrl(Uri.parse(href));
-            },
-            styleSheet: _markdownStyleSheet(),
+            child: MarkdownBody(
+              data: text,
+              selectable: true,
+              extensionSet: md.ExtensionSet.gitHubWeb,
+              onTapLink: (text, href, title) {
+                if (href != null) launchUrl(Uri.parse(href));
+              },
+              styleSheet: _markdownStyleSheet(),
+            ),
           ),
         ),
-      ),
-    ]);
+      ],
+    );
   }
 }
 
@@ -1554,47 +1708,53 @@ class _ErrorBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Container(
-        width : 30,
-        height: 30,
-        decoration: BoxDecoration(
-          shape : BoxShape.circle,
-          color : const Color(0x33FF4444),
-          border: Border.all(
-              color: const Color(0xFFFF4444).withOpacity(0.4)),
-        ),
-        child: const Icon(Icons.error_outline_rounded,
-            color: Color(0xFFFF4444), size: 15),
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 16, vertical: 12),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 30,
+          height: 30,
           decoration: BoxDecoration(
-            color      : const Color(0xFF1A0A0A),
-            borderRadius: const BorderRadius.only(
-              topLeft    : Radius.circular(4),
-              topRight   : Radius.circular(16),
-              bottomLeft : Radius.circular(16),
-              bottomRight: Radius.circular(16),
-            ),
-            border: Border.all(
-                color: const Color(0xFFFF4444).withOpacity(0.3)),
+            shape: BoxShape.circle,
+            color: const Color(0x33FF4444),
+            border: Border.all(color: const Color(0xFFFF4444).withOpacity(0.4)),
           ),
-          child: Text(
-            text.isNotEmpty
-                ? text
-                : 'Terjadi kesalahan saat memproses pertanyaan.',
-            style: GoogleFonts.poppins(
-                fontSize: 14,
-                color   : const Color(0xFFFF8888),
-                height  : 1.6),
+          child: const Icon(
+            Icons.error_outline_rounded,
+            color: Color(0xFFFF4444),
+            size: 15,
           ),
         ),
-      ),
-    ]);
+        const SizedBox(width: 10),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A0A0A),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(4),
+                topRight: Radius.circular(16),
+                bottomLeft: Radius.circular(16),
+                bottomRight: Radius.circular(16),
+              ),
+              border: Border.all(
+                color: const Color(0xFFFF4444).withOpacity(0.3),
+              ),
+            ),
+            child: Text(
+              text.isNotEmpty
+                  ? text
+                  : 'Terjadi kesalahan saat memproses pertanyaan.',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: const Color(0xFFFF8888),
+                height: 1.6,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -1608,16 +1768,18 @@ class _InputBar extends StatefulWidget {
     required this.focusNode,
     required this.sending,
     required this.onSend,
+    required this.onUploadPdf,
     this.pendingDetailId,
     this.onStop,
   });
 
   final TextEditingController controller;
-  final FocusNode             focusNode;
-  final bool                  sending;
-  final VoidCallback          onSend;
-  final int?                  pendingDetailId;
-  final VoidCallback?         onStop;
+  final FocusNode focusNode;
+  final bool sending;
+  final VoidCallback onSend;
+  final Future<void> Function(Uint8List bytes, String filename) onUploadPdf;
+  final int? pendingDetailId;
+  final VoidCallback? onStop;
 
   @override
   State<_InputBar> createState() => _InputBarState();
@@ -1635,6 +1797,258 @@ class _InputBarState extends State<_InputBar> {
     });
   }
 
+  void _showUploadDialog(BuildContext context) {
+    String?    _selectedFileName;
+    Uint8List? _selectedFileBytes;
+    bool       _isUploading = false;
+ 
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+ 
+          Future<void> pickFile() async {
+            final result = await FilePicker.platform.pickFiles(
+              type: FileType.custom,
+              allowedExtensions: ['pdf'],
+              withData: true,
+            );
+            if (result == null) return;
+            final picked = result.files.single;
+            if (picked.bytes == null) return;
+            setDialogState(() {
+              _selectedFileName  = picked.name;
+              _selectedFileBytes = picked.bytes;
+            });
+          }
+ 
+          Future<void> doUpload() async {
+            if (_selectedFileBytes == null || _selectedFileName == null) return;
+            setDialogState(() => _isUploading = true);
+            await widget.onUploadPdf(_selectedFileBytes!, _selectedFileName!);
+            if (ctx.mounted) Navigator.of(ctx).pop();
+          }
+ 
+          return Dialog(
+            backgroundColor: const Color(0xFF111111),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: Color(0xFF1A1A1A)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF16DB65).withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.auto_stories_rounded,
+                            color: Color(0xFF16DB65), size: 18),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Tambah Pengetahuan Bot',
+                          style: GoogleFonts.poppins(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                      if (!_isUploading)
+                        GestureDetector(
+                          onTap: () => Navigator.of(ctx).pop(),
+                          child: const Icon(Icons.close_rounded,
+                              color: Color(0xFF666666), size: 20),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Tambahkan pengetahuan bot di sini',
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      color: const Color(0xFFA3A3A3),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+ 
+                  // Upload area
+                  GestureDetector(
+                    onTap: _isUploading ? null : pickFile,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 24, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0D0D0D),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _selectedFileName != null
+                              ? const Color(0xFF16DB65).withOpacity(0.5)
+                              : const Color(0xFF2A2A2A),
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          if (_isUploading)
+                            const SizedBox(
+                              width: 36, height: 36,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Color(0xFF16DB65),
+                              ),
+                            )
+                          else
+                            Icon(
+                              _selectedFileName != null
+                                  ? Icons.picture_as_pdf_rounded
+                                  : Icons.upload_file_rounded,
+                              color: _selectedFileName != null
+                                  ? const Color(0xFF16DB65)
+                                  : const Color(0xFF555555),
+                              size: 36,
+                            ),
+                          const SizedBox(height: 10),
+                          if (_isUploading) ...[
+                            Text(
+                              'Mengunggah "$_selectedFileName"...',
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: const Color(0xFF16DB65),
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Mohon tunggu, jangan tutup dialog ini',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                color: const Color(0xFF666666),
+                              ),
+                            ),
+                          ] else if (_selectedFileName != null) ...[
+                            Text(
+                              _selectedFileName!,
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: const Color(0xFF16DB65),
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Ketuk untuk mengganti file',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                color: const Color(0xFF666666),
+                              ),
+                            ),
+                          ] else ...[
+                            Text(
+                              'Ketuk untuk memilih file PDF',
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: const Color(0xFF888888),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Hanya file .pdf yang didukung',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                color: const Color(0xFF555555),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+ 
+                  const SizedBox(height: 20),
+ 
+                  // Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: _isUploading
+                              ? null
+                              : () => Navigator.of(ctx).pop(),
+                          style: TextButton.styleFrom(
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                          ),
+                          child: Text(
+                            'Batal',
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              color: _isUploading
+                                  ? const Color(0xFF444444)
+                                  : const Color(0xFF888888),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed:
+                              (_selectedFileName != null && !_isUploading)
+                                  ? doUpload
+                                  : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor:
+                                (_selectedFileName != null && !_isUploading)
+                                    ? const Color(0xFF16DB65)
+                                    : const Color(0xFF1A1A1A),
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                            elevation: 0,
+                          ),
+                          child: Text(
+                            'Unggah',
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: (_selectedFileName != null &&
+                                      !_isUploading)
+                                  ? Colors.black
+                                  : const Color(0xFF555555),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasPending = widget.pendingDetailId != null;
@@ -1642,56 +2056,90 @@ class _InputBarState extends State<_InputBar> {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
       decoration: const BoxDecoration(
-        color : Color(0xFF0D0D0D),
+        color: Color(0xFF0D0D0D),
         border: Border(top: BorderSide(color: Color(0xFF1A1A1A))),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          // Tombol Upload PDF
+          Padding(
+            padding: const EdgeInsets.only(bottom: 0),
+            child: SizedBox(
+              width: 48,
+              height: 48,
+              child: Tooltip(
+                message: 'Unggah PDF pengetahuan bot',
+                child: ElevatedButton(
+                  onPressed: () => _showUploadDialog(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1A1A1A),
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Icon(
+                    Icons.upload_file_rounded,
+                    color: Color(0xFF888888),
+                    size: 20,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
           Expanded(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 150),
               child: TextField(
-                controller     : widget.controller,
-                focusNode      : widget.focusNode,
-                maxLines       : null,
-                keyboardType   : TextInputType.multiline,
+                controller: widget.controller,
+                focusNode: widget.focusNode,
+                maxLines: null,
+                keyboardType: TextInputType.multiline,
                 textInputAction: TextInputAction.newline,
-                enabled        : !widget.sending,
-                style          : GoogleFonts.poppins(
-                    fontSize: 14, color: Colors.white),
+                enabled: !widget.sending,
+                style: GoogleFonts.poppins(fontSize: 14, color: Colors.white),
                 cursorColor: const Color(0xFF16DB65),
-                decoration : InputDecoration(
-                  hintText : 'Ketik pertanyaan Anda...',
+                decoration: InputDecoration(
+                  hintText: 'Ketik pertanyaan Anda...',
                   hintStyle: GoogleFonts.poppins(
-                      fontSize: 14, color: const Color(0xFFA3A3A3)),
-                  filled      : true,
-                  fillColor   : const Color(0xFF111111),
+                    fontSize: 14,
+                    color: const Color(0xFFA3A3A3),
+                  ),
+                  filled: true,
+                  fillColor: const Color(0xFF111111),
                   contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12),
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide  :
-                          const BorderSide(color: Color(0xFF1A1A1A))),
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFF1A1A1A)),
+                  ),
                   enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide  :
-                          const BorderSide(color: Color(0xFF1A1A1A))),
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFF1A1A1A)),
+                  ),
                   focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide  : const BorderSide(
-                          color: Color(0xFF16DB65), width: 1.5)),
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF16DB65),
+                      width: 1.5,
+                    ),
+                  ),
                   disabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide  :
-                          const BorderSide(color: Color(0xFF1A1A1A))),
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Color(0xFF1A1A1A)),
+                  ),
                 ),
               ),
             ),
           ),
           const SizedBox(width: 10),
           SizedBox(
-            width : 48,
+            width: 48,
             height: 48,
             child: hasPending
                 ? Tooltip(
@@ -1700,35 +2148,47 @@ class _InputBarState extends State<_InputBar> {
                       onPressed: widget.onStop,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFFF4444),
-                        padding        : EdgeInsets.zero,
-                        shape          : RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                        padding: EdgeInsets.zero,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         elevation: 0,
                       ),
-                      child: const Icon(Icons.stop_rounded,
-                          color: Colors.white, size: 20),
+                      child: const Icon(
+                        Icons.stop_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                     ),
                   )
                 : ElevatedButton(
-                    onPressed:
-                        (widget.sending || !_hasText) ? null : widget.onSend,
+                    onPressed: (widget.sending || !_hasText)
+                        ? null
+                        : widget.onSend,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _hasText && !widget.sending
                           ? const Color(0xFF16DB65)
                           : const Color(0xFF1A1A1A),
-                      padding  : EdgeInsets.zero,
-                      shape    : RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                      padding: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       elevation: 0,
                     ),
                     child: widget.sending
                         ? const SizedBox(
-                            width : 18,
+                            width: 18,
                             height: 18,
-                            child : CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.black))
-                        : const Icon(Icons.arrow_upward_rounded,
-                            color: Colors.black, size: 20),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.arrow_upward_rounded,
+                            color: Colors.black,
+                            size: 20,
+                          ),
                   ),
           ),
         ],

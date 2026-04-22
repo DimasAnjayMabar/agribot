@@ -43,6 +43,7 @@ dependencies:
   http: ^1.6.0       # mungkin sudah ada
   url_launcher: ^6.3.2  # mungkin sudah ada
   audioplayers: ^6.6.0
+  file_picker: ^8.0.0
 
 dev_dependencies:
   flutter_test:

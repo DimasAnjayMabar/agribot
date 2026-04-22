@@ -484,6 +484,64 @@ class ChatService {
   }
 
   // -------------------------------------------------------------------------
+  // Knowledge Upload Methods
+  // -------------------------------------------------------------------------
+
+  /// Upload PDF ke knowledge base chatbot.
+  ///
+  /// [fileBytes]  : konten file dalam bentuk bytes (dari file_picker).
+  /// [fileName]   : nama file asli, e.g. "jurnal_padi.pdf".
+  /// [judul]      : judul jurnal / dokumen (opsional, default: nama file tanpa ekstensi).
+  /// [penulis]    : nama penulis (opsional, default: "Unknown Author").
+  /// [tahun]      : tahun terbit sebagai string, e.g. "2024" (opsional).
+  ///
+  /// Return: map `{"success": bool, "message": String, "data": {...}}` atau null jika error jaringan.
+  Future<Map<String, dynamic>?> uploadPdf({
+    required Uint8List fileBytes,
+    required String fileName,
+    String? judul,
+    String? penulis,
+    String? tahun,
+  }) async {
+    try {
+      final formData = FormData.fromMap({
+        'file': MultipartFile.fromBytes(
+          fileBytes,
+          filename: fileName,
+          contentType: http.MediaType('application', 'pdf'),
+        ),
+        if (judul != null && judul.isNotEmpty) 'judul': judul,
+        if (penulis != null && penulis.isNotEmpty) 'penulis': penulis,
+        if (tahun != null && tahun.isNotEmpty) 'tahun': tahun,
+      });
+
+      final res = await _dio.post(
+        '/knowledge/upload',
+        data: formData,
+        options: Options(
+          headers: _authHeader,
+          // Upload PDF bisa butuh waktu lebih lama untuk diproses embedder
+          sendTimeout: const Duration(minutes: 5),
+          receiveTimeout: const Duration(minutes: 5),
+        ),
+      );
+
+      return res.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
+        _forceLogout();
+      }
+      // Kembalikan error payload dari server jika ada
+      if (e.response?.data != null) {
+        return e.response!.data as Map<String, dynamic>;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // SSE Methods
   // -------------------------------------------------------------------------
 
