@@ -212,8 +212,10 @@ class ChatService {
   int? _userId;
   Timer? _tokenTimer;
 
-  // Instance AudioPlayer untuk memutar TTS
+  // Instance AudioPlayer & State Tracker untuk memutar TTS
   final AudioPlayer _audioPlayer = AudioPlayer();
+  final ValueNotifier<int?> playingTtsId = ValueNotifier<int?>(null);
+  int? _currentTtsRequestDetailId;
 
   String? get accessToken => _accessToken;
   int? get userId => _userId;
@@ -224,7 +226,17 @@ class ChatService {
   final VoidCallback? onForceLogout;
   final void Function(String? token)? onTokenUpdated;
 
-  ChatService({this.onForceLogout, this.onTokenUpdated});
+  ChatService({this.onForceLogout, this.onTokenUpdated}) {
+    // Memantau status player agar tombol kembali normal jika audio selesai/stop otomatis
+    _audioPlayer.onPlayerComplete.listen((_) {
+      playingTtsId.value = null;
+    });
+    _audioPlayer.onPlayerStateChanged.listen((state) {
+      if (state == PlayerState.stopped || state == PlayerState.completed) {
+        playingTtsId.value = null;
+      }
+    });
+  }
 
   // -------------------------------------------------------------------------
   // Auth Methods
@@ -278,6 +290,7 @@ class ChatService {
     _accessToken = null;
     _userId = null;
     _audioPlayer.stop();
+    playingTtsId.value = null;
     onForceLogout?.call();
   }
 
@@ -292,6 +305,7 @@ class ChatService {
     _accessToken = null;
     _userId = null;
     await _audioPlayer.stop();
+    playingTtsId.value = null;
   }
 
   Future<void> logout() async {
@@ -455,25 +469,29 @@ class ChatService {
 
   Future<void> playTTS(int detailId) async {
     try {
-      // 1. Hentikan suara jika sedang memutar pesan lain
       await _audioPlayer.stop();
+      playingTtsId.value = detailId;
+      _currentTtsRequestDetailId = detailId; // Cegah balapan kondisi jika ditekan stop saat loading
 
-      // 2. Gunakan Dio untuk mengambil raw bytes (aman dari isu CORS/Header di web & mobile)
       final response = await _dio.get(
         '/chat/message/$detailId/tts',
         options: Options(
           headers: _authHeader,
-          responseType: ResponseType.bytes, // Wajib: Ambil data sebagai bytes, bukan JSON
+          responseType: ResponseType.bytes, 
         ),
       );
 
-      // 3. Konversi ke format Uint8List yang dibutuhkan audioplayers
+      // Jika pengguna menekan tombol stop SEBELUM API membalas, jangan putar audionya
+      if (_currentTtsRequestDetailId != detailId) return;
+
       final List<int> audioData = response.data;
       final Uint8List uint8Bytes = Uint8List.fromList(audioData);
 
-      // 4. Putar suara dari memory buffer (BytesSource)
       await _audioPlayer.play(BytesSource(uint8Bytes));
     } catch (e) {
+      if (_currentTtsRequestDetailId == detailId) {
+        playingTtsId.value = null;
+      }
       print('❌ Error playing TTS: $e');
       throw Exception('Gagal memutar audio TTS.');
     }
@@ -481,7 +499,9 @@ class ChatService {
 
   Future<void> stopTTS() async {
     try {
-      await _audioPlayer.stop(); // Bug diperbaiki di baris ini
+      _currentTtsRequestDetailId = null;
+      await _audioPlayer.stop();
+      playingTtsId.value = null;
     } catch (e) {
       debugPrint('Error stopping TTS: $e');
     }
@@ -491,15 +511,6 @@ class ChatService {
   // Knowledge Upload Methods
   // -------------------------------------------------------------------------
 
-  /// Upload PDF ke knowledge base chatbot.
-  ///
-  /// [fileBytes]  : konten file dalam bentuk bytes (dari file_picker).
-  /// [fileName]   : nama file asli, e.g. "jurnal_padi.pdf".
-  /// [judul]      : judul jurnal / dokumen (opsional, default: nama file tanpa ekstensi).
-  /// [penulis]    : nama penulis (opsional, default: "Unknown Author").
-  /// [tahun]      : tahun terbit sebagai string, e.g. "2024" (opsional).
-  ///
-  /// Return: map `{"success": bool, "message": String, "data": {...}}` atau null jika error jaringan.
   Future<Map<String, dynamic>?> uploadPdf({
     required Uint8List fileBytes,
     required String fileName,
@@ -524,7 +535,6 @@ class ChatService {
         data: formData,
         options: Options(
           headers: _authHeader,
-          // Upload PDF bisa butuh waktu lebih lama untuk diproses embedder
           sendTimeout: const Duration(minutes: 5),
           receiveTimeout: const Duration(minutes: 5),
         ),
@@ -535,7 +545,6 @@ class ChatService {
       if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
         _forceLogout();
       }
-      // Kembalikan error payload dari server jika ada
       if (e.response?.data != null) {
         return e.response!.data as Map<String, dynamic>;
       }

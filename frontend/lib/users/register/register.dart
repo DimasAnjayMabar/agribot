@@ -1,3 +1,4 @@
+// lib/users/register.dart
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -176,6 +177,8 @@ class _RegisterPageState extends State<RegisterPage>
                     label: 'Nama Lengkap',
                     hint: 'John Doe',
                     icon: Icons.person_outline_rounded,
+                    textInputAction: TextInputAction.next,
+                    onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                     validator: (v) => (v == null || v.isEmpty)
                         ? 'Nama tidak boleh kosong'
                         : null,
@@ -187,6 +190,8 @@ class _RegisterPageState extends State<RegisterPage>
                     label: 'Username',
                     hint: '@johndoe',
                     icon: Icons.alternate_email_rounded,
+                    textInputAction: TextInputAction.next,
+                    onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                     validator: (v) => (v == null || v.isEmpty)
                         ? 'Username tidak boleh kosong'
                         : null,
@@ -199,6 +204,8 @@ class _RegisterPageState extends State<RegisterPage>
                     hint: 'johndoe@email.com',
                     icon: Icons.mail_outline_rounded,
                     keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
+                    onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                     validator: (v) {
                       if (v == null || v.isEmpty)
                         return 'Email tidak boleh kosong';
@@ -214,6 +221,8 @@ class _RegisterPageState extends State<RegisterPage>
                     hint: '••••••••',
                     icon: Icons.lock_outline_rounded,
                     obscureText: _obscurePassword,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _handleRegister(),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword
@@ -335,6 +344,8 @@ class _NeonField extends StatefulWidget {
     this.keyboardType,
     this.suffixIcon,
     this.validator,
+    this.textInputAction,
+    this.onFieldSubmitted,
   });
 
   final TextEditingController controller;
@@ -345,6 +356,8 @@ class _NeonField extends StatefulWidget {
   final TextInputType? keyboardType;
   final Widget? suffixIcon;
   final String? Function(String?)? validator;
+  final TextInputAction? textInputAction;
+  final void Function(String)? onFieldSubmitted;
 
   @override
   State<_NeonField> createState() => _NeonFieldState();
@@ -391,6 +404,8 @@ class _NeonFieldState extends State<_NeonField> {
               controller: widget.controller,
               obscureText: widget.obscureText,
               keyboardType: widget.keyboardType,
+              textInputAction: widget.textInputAction,
+              onFieldSubmitted: widget.onFieldSubmitted,
               validator: widget.validator,
               style: GoogleFonts.poppins(
                 fontSize: 14,

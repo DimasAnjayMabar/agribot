@@ -88,6 +88,7 @@ class _ChatsPageState extends State<ChatsPage>
   @override
   void initState() {
     super.initState();
+
     _sidebarCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 250),
@@ -161,7 +162,6 @@ class _ChatsPageState extends State<ChatsPage>
               _markDisconnected(detailId);
               _stopTracking(detailId);
             }
-            // 'waiting' dan heartbeat — no-op
           },
           onError: (error) {
             if (mounted) _markDisconnected(detailId);
@@ -187,7 +187,6 @@ class _ChatsPageState extends State<ChatsPage>
           cancelOnError: true,
         );
 
-    // Fallback timeout 30 detik — fetch manual jika SSE tidak memberi sinyal
     Future.delayed(const Duration(seconds: 30), () {
       if (mounted && _trackers.containsKey(detailId)) {
         final msg = _messages.firstWhere(
@@ -236,7 +235,6 @@ class _ChatsPageState extends State<ChatsPage>
   void _stopTracking(int detailId) {
     _trackers[detailId]?.cancel();
     _trackers.remove(detailId);
-    // Rebuild agar tombol stop/send di InputBar ikut update
     if (mounted) setState(() {});
   }
 
@@ -249,11 +247,12 @@ class _ChatsPageState extends State<ChatsPage>
 
   Future<void> _fetchTopics() async {
     final topics = await _chatService.fetchTopics();
-    if (mounted)
+    if (mounted) {
       setState(() {
         _topics = topics;
         _loadingTopics = false;
       });
+    }
   }
 
   Future<void> _fetchProfile() async {
@@ -267,13 +266,11 @@ class _ChatsPageState extends State<ChatsPage>
       _messages = [];
     });
 
-    // fetchMessages return null jika error, [] jika berhasil tapi kosong
     final msgs = await _chatService.fetchMessages(chatId);
 
     if (!mounted) return;
 
     if (msgs == null) {
-      // Error jaringan / server
       setState(() => _loadingMessages = false);
       _showSnack('Gagal memuat pesan.');
       return;
@@ -285,7 +282,6 @@ class _ChatsPageState extends State<ChatsPage>
     });
     _scrollToBottom();
 
-    // Recovery: pesan pending dari sesi sebelumnya → buka SSE ulang
     for (final msg in msgs.where((m) => m.isPending)) {
       _startTracking(msg.id);
     }
@@ -361,10 +357,11 @@ class _ChatsPageState extends State<ChatsPage>
       final idx = _messages.indexWhere((m) => m.id == replaceDetailId);
       setState(() {
         _pendingQuestion = null;
-        if (idx != -1)
+        if (idx != -1) {
           _messages[idx] = msg;
-        else
+        } else {
           _messages.add(msg);
+        }
         _sending = false;
       });
     } else {
@@ -437,8 +434,6 @@ class _ChatsPageState extends State<ChatsPage>
   }
 
   Future<void> _stopGeneration(int detailId) async {
-    // Optimistic UI: langsung hilangkan tombol stop
-    // SSE akan konfirmasi dengan event 'stopped' → fetch detail terbaru
     final success = await _chatService.stopGeneration(detailId);
     if (!success && mounted) {
       _showSnack('Gagal menghentikan generate.');
@@ -541,7 +536,6 @@ class _ChatsPageState extends State<ChatsPage>
 
   @override
   Widget build(BuildContext context) {
-    // Ambil detail_id pertama yang sedang pending (untuk tombol stop)
     final int? pendingDetailId = _trackers.isNotEmpty
         ? _trackers.keys.first
         : null;
@@ -663,24 +657,48 @@ class _ChatsPageState extends State<ChatsPage>
         }
 
         if (msg.isStopped) {
-          return _StoppedBubble(
-            response: msg.response,
-            onRegenerate: () => _regenerateResponse(msg),
-            onCopyAnswer: () => _copyText(msg.response),
-            onTTS: () => _playTTS(msg),
-            onStopTTS: _stopTTS,
+          return ValueListenableBuilder<int?>(
+            valueListenable: _chatService.playingTtsId,
+            builder: (context, playingId, _) {
+              final isPlaying = playingId == msg.id;
+              return _StoppedBubble(
+                response: msg.response,
+                onRegenerate: () => _regenerateResponse(msg),
+                onCopyAnswer: () => _copyText(msg.response),
+                isPlayingTts: isPlaying,
+                onToggleTTS: () {
+                  if (isPlaying) {
+                    _stopTTS();
+                  } else {
+                    _playTTS(msg);
+                  }
+                },
+              );
+            },
           );
         }
 
-        // status 'done' — jawaban lengkap
-        return _MessagePair(
-          message: msg,
-          onEdit: (newQ) => _editMessage(msg, newQ),
-          onRegenerate: () => _regenerateResponse(msg),
-          onCopyQuestion: () => _copyText(msg.question),
-          onCopyAnswer: () => _copyText(msg.response),
-          onTTS: () => _playTTS(msg),
-          onStopTTS: _stopTTS,
+        // Status 'done' — jawaban lengkap
+        return ValueListenableBuilder<int?>(
+          valueListenable: _chatService.playingTtsId,
+          builder: (context, playingId, _) {
+            final isPlaying = playingId == msg.id;
+            return _MessagePair(
+              message: msg,
+              onEdit: (newQ) => _editMessage(msg, newQ),
+              onRegenerate: () => _regenerateResponse(msg),
+              onCopyQuestion: () => _copyText(msg.question),
+              onCopyAnswer: () => _copyText(msg.response),
+              isPlayingTts: isPlaying,
+              onToggleTTS: () {
+                if (isPlaying) {
+                  _stopTTS();
+                } else {
+                  _playTTS(msg);
+                }
+              },
+            );
+          },
         );
       },
     );
@@ -883,8 +901,8 @@ class _MessagePair extends StatefulWidget {
     required this.onRegenerate,
     required this.onCopyQuestion,
     required this.onCopyAnswer,
-    required this.onTTS,
-    required this.onStopTTS,
+    required this.isPlayingTts,
+    required this.onToggleTTS,
   });
 
   final ChatMessage message;
@@ -892,8 +910,8 @@ class _MessagePair extends StatefulWidget {
   final VoidCallback onRegenerate;
   final VoidCallback onCopyQuestion;
   final VoidCallback onCopyAnswer;
-  final VoidCallback onTTS;
-  final VoidCallback onStopTTS;
+  final bool isPlayingTts;
+  final VoidCallback onToggleTTS;
 
   @override
   State<_MessagePair> createState() => _MessagePairState();
@@ -906,7 +924,6 @@ class _MessagePairState extends State<_MessagePair> {
     final isMobile = _isMobileDevice(context);
 
     if (isMobile) {
-      // Mobile: show bottom sheet
       showModalBottomSheet(
         context: context,
         backgroundColor: const Color(0xFF111111),
@@ -975,13 +992,11 @@ class _MessagePairState extends State<_MessagePair> {
         children: [
           // ── User bubble dengan action buttons ───────────────────────────────
           if (isMobile)
-            // Mobile: long press untuk menampilkan menu
             GestureDetector(
               onLongPress: () => _showQuestionActions(context),
               child: _UserBubble(text: msg.question),
             )
           else
-            // Desktop: hover dengan animasi fade in/out, tombol di bawah bubble
             MouseRegion(
               onEnter: (_) => setState(() => _hovered = true),
               onExit: (_) => setState(() => _hovered = false),
@@ -989,7 +1004,6 @@ class _MessagePairState extends State<_MessagePair> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   _UserBubble(text: msg.question),
-                  // Action buttons dengan animasi fade
                   AnimatedOpacity(
                     opacity: _hovered && !msg.isStopped ? 1.0 : 0.0,
                     duration: const Duration(milliseconds: 150),
@@ -1013,7 +1027,6 @@ class _MessagePairState extends State<_MessagePair> {
                       ),
                     ),
                   ),
-                  // Untuk pesan stopped, hanya tombol copy
                   if (msg.isStopped)
                     AnimatedOpacity(
                       opacity: _hovered ? 1.0 : 0.0,
@@ -1039,12 +1052,11 @@ class _MessagePairState extends State<_MessagePair> {
             children: [
               _AiBubble(text: msg.response),
               const SizedBox(height: 8),
-              // Action buttons untuk answer (static, selalu tampil)
               _AnswerActions(
                 onRegenerate: widget.onRegenerate,
                 onCopy: widget.onCopyAnswer,
-                onTTS: widget.onTTS,
-                onStopTTS: widget.onStopTTS,
+                isPlayingTts: widget.isPlayingTts,
+                onToggleTTS: widget.onToggleTTS,
               ),
             ],
           ),
@@ -1135,7 +1147,7 @@ class _MessagePairState extends State<_MessagePair> {
 }
 
 // ---------------------------------------------------------------------------
-// Action Chip (untuk desktop question actions)
+// Action Chip
 // ---------------------------------------------------------------------------
 
 class _ActionChip extends StatelessWidget {
@@ -1143,11 +1155,13 @@ class _ActionChip extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.active = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -1157,20 +1171,30 @@ class _ActionChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: const Color(0xFF1A1A1A),
+          color: active 
+              ? const Color(0xFF16DB65).withOpacity(0.15) 
+              : const Color(0xFF1A1A1A),
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: const Color(0xFF2A2A2A)),
+          border: Border.all(
+            color: active 
+                ? const Color(0xFF16DB65).withOpacity(0.5) 
+                : const Color(0xFF2A2A2A),
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 13, color: const Color(0xFFA3A3A3)),
+            Icon(
+              icon, 
+              size: 13, 
+              color: active ? const Color(0xFF16DB65) : const Color(0xFFA3A3A3)
+            ),
             const SizedBox(width: 5),
             Text(
               label,
               style: GoogleFonts.poppins(
                 fontSize: 11,
-                color: const Color(0xFFA3A3A3),
+                color: active ? const Color(0xFF16DB65) : const Color(0xFFA3A3A3),
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -1182,28 +1206,26 @@ class _ActionChip extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Answer Actions (static, selalu tampil di bawah AI bubble)
+// Answer Actions 
 // ---------------------------------------------------------------------------
 
 class _AnswerActions extends StatelessWidget {
   const _AnswerActions({
     required this.onRegenerate,
     required this.onCopy,
-    required this.onTTS,
-    required this.onStopTTS,
+    required this.isPlayingTts,
+    required this.onToggleTTS,
   });
 
   final VoidCallback onRegenerate;
   final VoidCallback onCopy;
-  final VoidCallback onTTS;
-  final VoidCallback onStopTTS;
+  final bool isPlayingTts;
+  final VoidCallback onToggleTTS;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(
-        left: 40,
-      ), // align dengan AI bubble content
+      padding: const EdgeInsets.only(left: 40), 
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
@@ -1219,14 +1241,10 @@ class _AnswerActions extends StatelessWidget {
             onTap: onCopy,
           ),
           _ActionChip(
-            icon: Icons.volume_up_rounded,
-            label: 'Dengarkan',
-            onTap: onTTS,
-          ),
-          _ActionChip(
-            icon: Icons.volume_off_rounded,
-            label: 'Stop Suara',
-            onTap: onStopTTS,
+            icon: isPlayingTts ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+            label: isPlayingTts ? 'Stop Suara' : 'Dengarkan',
+            onTap: onToggleTTS,
+            active: isPlayingTts,
           ),
         ],
       ),
@@ -1441,7 +1459,7 @@ class _DisconnectedBubble extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Stopped Bubble — partial response + label + tombol regenerate
+// Stopped Bubble
 // ---------------------------------------------------------------------------
 
 class _StoppedBubble extends StatelessWidget {
@@ -1449,15 +1467,15 @@ class _StoppedBubble extends StatelessWidget {
     required this.response,
     required this.onRegenerate,
     required this.onCopyAnswer,
-    required this.onTTS,
-    required this.onStopTTS,
+    required this.isPlayingTts,
+    required this.onToggleTTS,
   });
 
   final String response;
   final VoidCallback onRegenerate;
   final VoidCallback onCopyAnswer;
-  final VoidCallback onTTS;
-  final VoidCallback onStopTTS;
+  final bool isPlayingTts;
+  final VoidCallback onToggleTTS;
 
   @override
   Widget build(BuildContext context) {
@@ -1488,7 +1506,6 @@ class _StoppedBubble extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Partial response jika ada
                     if (response.isNotEmpty) ...[
                       MarkdownBody(
                         data: response,
@@ -1505,8 +1522,6 @@ class _StoppedBubble extends StatelessWidget {
                         thickness: 1,
                       ),
                     ],
-
-                    // Label stopped
                     Row(
                       children: [
                         const Icon(
@@ -1531,35 +1546,11 @@ class _StoppedBubble extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        // Answer actions
-        Padding(
-          padding: const EdgeInsets.only(left: 40),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _ActionChip(
-                icon: Icons.refresh_rounded,
-                label: 'Generate ulang',
-                onTap: onRegenerate,
-              ),
-              _ActionChip(
-                icon: Icons.copy_rounded,
-                label: 'Salin',
-                onTap: onCopyAnswer,
-              ),
-              _ActionChip(
-                icon: Icons.volume_up_rounded,
-                label: 'Dengarkan',
-                onTap: onTTS,
-              ),
-              _ActionChip(
-                icon: Icons.volume_off_rounded,
-                label: 'Stop Suara',
-                onTap: onStopTTS,
-              ),
-            ],
-          ),
+        _AnswerActions(
+          onRegenerate: onRegenerate,
+          onCopy: onCopyAnswer,
+          isPlayingTts: isPlayingTts,
+          onToggleTTS: onToggleTTS,
         ),
       ],
     );
@@ -1789,6 +1780,14 @@ class _ErrorBubble extends StatelessWidget {
       ],
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Intents untuk Shortcuts
+// ---------------------------------------------------------------------------
+
+class SendMessageIntent extends Intent {
+  const SendMessageIntent();
 }
 
 // ---------------------------------------------------------------------------
@@ -2126,45 +2125,64 @@ class _InputBarState extends State<_InputBar> {
           Expanded(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 150),
-              child: TextField(
-                controller: widget.controller,
-                focusNode: widget.focusNode,
-                maxLines: null,
-                keyboardType: TextInputType.multiline,
-                textInputAction: TextInputAction.newline,
-                enabled: !widget.sending,
-                style: GoogleFonts.poppins(fontSize: 14, color: Colors.white),
-                cursorColor: const Color(0xFF16DB65),
-                decoration: InputDecoration(
-                  hintText: 'Ketik pertanyaan Anda...',
-                  hintStyle: GoogleFonts.poppins(
-                    fontSize: 14,
-                    color: const Color(0xFFA3A3A3),
-                  ),
-                  filled: true,
-                  fillColor: const Color(0xFF111111),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Color(0xFF1A1A1A)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Color(0xFF1A1A1A)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(
-                      color: Color(0xFF16DB65),
-                      width: 1.5,
+              child: Shortcuts(
+                shortcuts: <ShortcutActivator, Intent>{
+                  // HANYA CEGAT ENTER SAJA. Shift+Enter dibiarkan lewat agar ditangani bawaan TextField
+                  const SingleActivator(LogicalKeyboardKey.enter): const SendMessageIntent(),
+                  const SingleActivator(LogicalKeyboardKey.numpadEnter): const SendMessageIntent(),
+                },
+                child: Actions(
+                  actions: <Type, Action<Intent>>{
+                    SendMessageIntent: CallbackAction<SendMessageIntent>(
+                      onInvoke: (intent) {
+                        if (!widget.sending && widget.controller.text.trim().isNotEmpty) {
+                          widget.onSend();
+                        }
+                        return null;
+                      },
                     ),
-                  ),
-                  disabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Color(0xFF1A1A1A)),
+                  },
+                  child: TextField(
+                    controller: widget.controller,
+                    focusNode: widget.focusNode,
+                    maxLines: null,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    enabled: !widget.sending,
+                    style: GoogleFonts.poppins(fontSize: 14, color: Colors.white),
+                    cursorColor: const Color(0xFF16DB65),
+                    decoration: InputDecoration(
+                      hintText: 'Ketik pertanyaan Anda...',
+                      hintStyle: GoogleFonts.poppins(
+                        fontSize: 14,
+                        color: const Color(0xFFA3A3A3),
+                      ),
+                      filled: true,
+                      fillColor: const Color(0xFF111111),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xFF1A1A1A)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xFF1A1A1A)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF16DB65),
+                          width: 1.5,
+                        ),
+                      ),
+                      disabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xFF1A1A1A)),
+                      ),
+                    ),
                   ),
                 ),
               ),

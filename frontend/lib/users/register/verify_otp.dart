@@ -1,3 +1,4 @@
+// lib/users/verify_otp.dart
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -239,6 +240,8 @@ class _RegisterVerifyOtpPageState extends State<RegisterVerifyOtpPage>
                   icon: Icons.pin_outlined,
                   keyboardType: TextInputType.number,
                   maxLength: _otpLength,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _handleVerify(),
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 40),
@@ -313,6 +316,8 @@ class _NeonField extends StatefulWidget {
     this.keyboardType,
     this.maxLength,
     this.onChanged,
+    this.textInputAction,
+    this.onFieldSubmitted,
   });
 
   final TextEditingController controller;
@@ -322,6 +327,8 @@ class _NeonField extends StatefulWidget {
   final TextInputType? keyboardType;
   final int? maxLength;
   final ValueChanged<String>? onChanged;
+  final TextInputAction? textInputAction;
+  final void Function(String)? onFieldSubmitted;
 
   @override
   State<_NeonField> createState() => _NeonFieldState();
@@ -360,6 +367,8 @@ class _NeonFieldState extends State<_NeonField> {
               keyboardType: widget.keyboardType,
               maxLength: widget.maxLength,
               onChanged: widget.onChanged,
+              textInputAction: widget.textInputAction,
+              onFieldSubmitted: widget.onFieldSubmitted,
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
                 fontSize: 22,

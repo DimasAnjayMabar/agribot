@@ -40,12 +40,6 @@ const _otpLength = 6;
 
 // ---------------------------------------------------------------------------
 // ChangeEmailVerifyOtpPage
-//
-// Flow:
-//   1. initState → request OTP otomatis ke /users/change-email/request-otp
-//      menggunakan email yang sedang login (dibaca dari secure storage)
-//   2. User masukkan OTP → POST /users/change-email/verify-otp
-//   3. Berhasil → navigate ke /users/change-email?token=...
 // ---------------------------------------------------------------------------
 
 class ChangeEmailVerifyOtpPage extends StatefulWidget {
@@ -66,8 +60,8 @@ class _ChangeEmailVerifyOtpPageState extends State<ChangeEmailVerifyOtpPage>
   bool _isVerifying    = false;
   bool _isResending    = false;
   bool _resendEnabled  = true;
-  bool _requestingOtp  = true;   // true saat initState sedang request OTP pertama
-  String? _requestError;         // error saat request OTP pertama gagal
+  bool _requestingOtp  = true;   
+  String? _requestError;         
 
   late final AnimationController _fadeController;
   late final Animation<double>   _fadeAnimation;
@@ -356,6 +350,8 @@ class _ChangeEmailVerifyOtpPageState extends State<ChangeEmailVerifyOtpPage>
                     icon: Icons.pin_outlined,
                     keyboardType: TextInputType.number,
                     maxLength: _otpLength,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _handleVerify(),
                     onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 40),
@@ -431,6 +427,8 @@ class _NeonField extends StatefulWidget {
     this.keyboardType,
     this.maxLength,
     this.onChanged,
+    this.textInputAction,
+    this.onFieldSubmitted,
   });
 
   final TextEditingController controller;
@@ -440,6 +438,8 @@ class _NeonField extends StatefulWidget {
   final TextInputType? keyboardType;
   final int? maxLength;
   final ValueChanged<String>? onChanged;
+  final TextInputAction? textInputAction;
+  final void Function(String)? onFieldSubmitted;
 
   @override
   State<_NeonField> createState() => _NeonFieldState();
@@ -478,6 +478,8 @@ class _NeonFieldState extends State<_NeonField> {
               keyboardType: widget.keyboardType,
               maxLength: widget.maxLength,
               onChanged: widget.onChanged,
+              textInputAction: widget.textInputAction,
+              onFieldSubmitted: widget.onFieldSubmitted,
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
                 fontSize: 22,

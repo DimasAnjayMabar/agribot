@@ -197,6 +197,8 @@ class _ResetPasswordPageState extends State<ResetPasswordPage>
                     hint: '••••••••',
                     icon: Icons.lock_outline_rounded,
                     obscureText: _obscureNew,
+                    textInputAction: TextInputAction.next,
+                    onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscureNew
@@ -227,6 +229,8 @@ class _ResetPasswordPageState extends State<ResetPasswordPage>
                     hint: '••••••••',
                     icon: Icons.lock_outline_rounded,
                     obscureText: _obscureConfirm,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _handleResetPassword(),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscureConfirm
@@ -322,6 +326,8 @@ class _NeonField extends StatefulWidget {
     this.keyboardType,
     this.suffixIcon,
     this.validator,
+    this.textInputAction,
+    this.onFieldSubmitted,
   });
 
   final TextEditingController controller;
@@ -332,6 +338,8 @@ class _NeonField extends StatefulWidget {
   final TextInputType? keyboardType;
   final Widget? suffixIcon;
   final String? Function(String?)? validator;
+  final TextInputAction? textInputAction;
+  final void Function(String)? onFieldSubmitted;
 
   @override
   State<_NeonField> createState() => _NeonFieldState();
@@ -377,6 +385,8 @@ class _NeonFieldState extends State<_NeonField> {
               controller: widget.controller,
               obscureText: widget.obscureText,
               keyboardType: widget.keyboardType,
+              textInputAction: widget.textInputAction,
+              onFieldSubmitted: widget.onFieldSubmitted,
               validator: widget.validator,
               style: GoogleFonts.poppins(
                 fontSize: 14,

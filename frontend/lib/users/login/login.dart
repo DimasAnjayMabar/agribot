@@ -1,5 +1,7 @@
+// lib/users/login.dart
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // <-- Untuk LogicalKeyboardKey
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -38,6 +40,13 @@ const _border   = Color(0xFF16DB65);
 const _textMuted = Color(0xFFA3A3A3);
 
 // ---------------------------------------------------------------------------
+// Intent untuk Shortcut Global
+// ---------------------------------------------------------------------------
+class SubmitIntent extends Intent {
+  const SubmitIntent();
+}
+
+// ---------------------------------------------------------------------------
 // LoginPage
 // ---------------------------------------------------------------------------
 
@@ -54,6 +63,9 @@ class _LoginPageState extends State<LoginPage>
 
   final _identifierController = TextEditingController();
   final _passwordController   = TextEditingController();
+
+  final _identifierFocus = FocusNode();
+  final _passwordFocus   = FocusNode();
 
   bool _obscurePassword = true;
   bool _isLoading       = false;
@@ -80,12 +92,15 @@ class _LoginPageState extends State<LoginPage>
     _fadeController.dispose();
     _identifierController.dispose();
     _passwordController.dispose();
+    _identifierFocus.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
   // ── Hit API login ──────────────────────────────────────────────────────────
 
   Future<void> _handleLogin() async {
+    if (_isLoading) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
@@ -101,7 +116,6 @@ class _LoginPageState extends State<LoginPage>
       if (response.statusCode == 200 && mounted) {
         final data = response.data['data'] as Map<String, dynamic>;
 
-        // Tulis sequential — IndexedDB web tidak support concurrent writes
         await _storage.write(key: 'access_token',  value: data['access_token']  as String);
         await _storage.write(key: 'refresh_token', value: data['refresh_token'] as String);
         await _storage.write(key: 'user_id',       value: (data['user_id'] as int).toString());
@@ -149,131 +163,157 @@ class _LoginPageState extends State<LoginPage>
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── Logo ──────────────────────────────────────────────────
-                  _Logo(),
-                  const SizedBox(height: 40),
+        // ── 1. BUNGKUS DENGAN SHORTCUTS & ACTIONS SECARA GLOBAL ──
+        child: Shortcuts(
+          shortcuts: <ShortcutActivator, Intent>{
+            const SingleActivator(LogicalKeyboardKey.enter): const SubmitIntent(),
+            const SingleActivator(LogicalKeyboardKey.numpadEnter): const SubmitIntent(),
+          },
+          child: Actions(
+            actions: <Type, Action<Intent>>{
+              SubmitIntent: CallbackAction<SubmitIntent>(
+                onInvoke: (intent) {
+                  // Logika Navigasi Fokus & Submit
+                  if (_identifierFocus.hasFocus) {
+                    _passwordFocus.requestFocus(); // Pindah ke password
+                  } else {
+                    _handleLogin(); // Jika di password atau di mana saja, langsung login
+                  }
+                  return null;
+                },
+              ),
+            },
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ── Logo ──────────────────────────────────────────────────
+                      _Logo(),
+                      const SizedBox(height: 40),
 
-                  // ── Heading ───────────────────────────────────────────────
-                  Text(
-                    'Masuk',
-                    style: GoogleFonts.poppins(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Selamat datang kembali di AgriBot.',
-                    style: GoogleFonts.poppins(
-                      fontSize: 13,
-                      color: _textMuted,
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 36),
-
-                  // ── Fields ────────────────────────────────────────────────
-                  _NeonField(
-                    controller: _identifierController,
-                    label: 'Username atau Email',
-                    hint: '@johndoe atau johndoe@email.com',
-                    icon: Icons.alternate_email_rounded,
-                    validator: (v) {
-                      if (v == null || v.isEmpty) {
-                        return 'Username atau email tidak boleh kosong';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 20),
-
-                  _NeonField(
-                    controller: _passwordController,
-                    label: 'Password',
-                    hint: '••••••••',
-                    icon: Icons.lock_outline_rounded,
-                    obscureText: _obscurePassword,
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                        color: _neon,
-                        size: 20,
-                      ),
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
-                    ),
-                    validator: (v) {
-                      if (v == null || v.isEmpty) return 'Password tidak boleh kosong';
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 14),
-
-                  // ── Lupa Password anchor ───────────────────────────────────
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: GestureDetector(
-                      onTap: () => context.push('/users/reset-password/otp'),
-                      child: Text(
-                        'Lupa password?',
+                      // ── Heading ───────────────────────────────────────────────
+                      Text(
+                        'Masuk',
                         style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          color: _neon,
-                          fontWeight: FontWeight.w500,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: -0.5,
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-
-                  // ── Submit button ──────────────────────────────────────────
-                  _NeonButton(
-                    label: 'Masuk',
-                    isLoading: _isLoading,
-                    onPressed: _handleLogin,
-                  ),
-                  const SizedBox(height: 28),
-
-                  // ── Belum punya akun ───────────────────────────────────────
-                  Center(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Belum punya akun? ',
-                          style: GoogleFonts.poppins(
-                            fontSize: 13,
-                            color: _textMuted,
-                          ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Selamat datang kembali di AgriBot.',
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          color: _textMuted,
+                          height: 1.5,
                         ),
-                        GestureDetector(
-                          onTap: () => context.push('/users/register'),
+                      ),
+                      const SizedBox(height: 36),
+
+                      // ── Fields ────────────────────────────────────────────────
+                      _NeonField(
+                        controller: _identifierController,
+                        focusNode: _identifierFocus,
+                        label: 'Username atau Email',
+                        hint: '@johndoe atau johndoe@email.com',
+                        icon: Icons.alternate_email_rounded,
+                        textInputAction: TextInputAction.next,
+                        validator: (v) {
+                          if (v == null || v.isEmpty) {
+                            return 'Username atau email tidak boleh kosong';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+
+                      _NeonField(
+                        controller: _passwordController,
+                        focusNode: _passwordFocus,
+                        label: 'Password',
+                        hint: '••••••••',
+                        icon: Icons.lock_outline_rounded,
+                        obscureText: _obscurePassword,
+                        textInputAction: TextInputAction.done,
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                            color: _neon,
+                            size: 20,
+                          ),
+                          onPressed: () =>
+                              setState(() => _obscurePassword = !_obscurePassword),
+                        ),
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Password tidak boleh kosong';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 14),
+
+                      // ── Lupa Password anchor ───────────────────────────────────
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: GestureDetector(
+                          onTap: () => context.push('/users/reset-password/otp'),
                           child: Text(
-                            'Daftar sekarang',
+                            'Lupa password?',
                             style: GoogleFonts.poppins(
-                              fontSize: 13,
+                              fontSize: 12,
                               color: _neon,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 32),
+
+                      // ── Submit button ──────────────────────────────────────────
+                      _NeonButton(
+                        label: 'Masuk',
+                        isLoading: _isLoading,
+                        onPressed: _handleLogin,
+                      ),
+                      const SizedBox(height: 28),
+
+                      // ── Belum punya akun ───────────────────────────────────────
+                      Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Belum punya akun? ',
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                color: _textMuted,
+                              ),
+                            ),
+                            GestureDetector(
+                              onTap: () => context.push('/users/register'),
+                              child: Text(
+                                'Daftar sekarang',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 13,
+                                  color: _neon,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -339,6 +379,9 @@ class _NeonField extends StatefulWidget {
     this.keyboardType,
     this.suffixIcon,
     this.validator,
+    this.textInputAction,
+    this.onFieldSubmitted,
+    this.focusNode,
   });
 
   final TextEditingController controller;
@@ -349,6 +392,9 @@ class _NeonField extends StatefulWidget {
   final TextInputType? keyboardType;
   final Widget? suffixIcon;
   final String? Function(String?)? validator;
+  final TextInputAction? textInputAction;
+  final void Function(String)? onFieldSubmitted;
+  final FocusNode? focusNode;
 
   @override
   State<_NeonField> createState() => _NeonFieldState();
@@ -356,6 +402,31 @@ class _NeonField extends StatefulWidget {
 
 class _NeonFieldState extends State<_NeonField> {
   bool _focused = false;
+  late FocusNode _effectiveFocusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _effectiveFocusNode = widget.focusNode ?? FocusNode();
+    _effectiveFocusNode.addListener(_handleFocusChange);
+  }
+
+  void _handleFocusChange() {
+    if (mounted) {
+      setState(() {
+        _focused = _effectiveFocusNode.hasFocus;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _effectiveFocusNode.removeListener(_handleFocusChange);
+    if (widget.focusNode == null) {
+      _effectiveFocusNode.dispose();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -386,57 +457,57 @@ class _NeonFieldState extends State<_NeonField> {
                   ]
                 : [],
           ),
-          child: Focus(
-            onFocusChange: (f) { if (mounted) setState(() => _focused = f); },
-            child: TextFormField(
-              controller: widget.controller,
-              obscureText: widget.obscureText,
-              keyboardType: widget.keyboardType,
-              validator: widget.validator,
-              style: GoogleFonts.poppins(
+          child: TextFormField(
+            controller: widget.controller,
+            focusNode: _effectiveFocusNode, 
+            obscureText: widget.obscureText,
+            keyboardType: widget.keyboardType,
+            validator: widget.validator,
+            textInputAction: widget.textInputAction,
+            onFieldSubmitted: widget.onFieldSubmitted,
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              color: _neon,
+              fontWeight: FontWeight.w500,
+            ),
+            cursorColor: _neon,
+            decoration: InputDecoration(
+              hintText: widget.hint,
+              hintStyle: GoogleFonts.poppins(
                 fontSize: 14,
-                color: _neon,
-                fontWeight: FontWeight.w500,
+                color: _textMuted,
               ),
-              cursorColor: _neon,
-              decoration: InputDecoration(
-                hintText: widget.hint,
-                hintStyle: GoogleFonts.poppins(
-                  fontSize: 14,
-                  color: _textMuted,
-                ),
-                prefixIcon: Icon(
-                  widget.icon,
-                  color: _focused ? _neon : _textMuted,
-                  size: 20,
-                ),
-                suffixIcon: widget.suffixIcon,
-                filled: true,
-                fillColor: _surface,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 16,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF1A1A1A), width: 1.5),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: _border, width: 1.5),
-                ),
-                errorBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.red.shade700, width: 1.5),
-                ),
-                focusedErrorBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.red.shade700, width: 1.5),
-                ),
-                errorStyle: GoogleFonts.poppins(
-                  fontSize: 11,
-                  color: Colors.red.shade400,
-                ),
+              prefixIcon: Icon(
+                widget.icon,
+                color: _focused ? _neon : _textMuted,
+                size: 20,
+              ),
+              suffixIcon: widget.suffixIcon,
+              filled: true,
+              fillColor: _surface,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 16,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF1A1A1A), width: 1.5),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: _border, width: 1.5),
+              ),
+              errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.red.shade700, width: 1.5),
+              ),
+              focusedErrorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.red.shade700, width: 1.5),
+              ),
+              errorStyle: GoogleFonts.poppins(
+                fontSize: 11,
+                color: Colors.red.shade400,
               ),
             ),
           ),

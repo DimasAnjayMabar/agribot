@@ -192,6 +192,8 @@ class _ChangeEmailPageState extends State<ChangeEmailPage>
                     hint: 'contoh@email.com',
                     icon: Icons.mail_outline_rounded,
                     keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _handleChangeEmail(),
                     validator: (v) {
                       if (v == null || v.trim().isEmpty) {
                         return 'Email tidak boleh kosong';
@@ -275,6 +277,8 @@ class _NeonField extends StatefulWidget {
     required this.icon,
     this.keyboardType,
     this.validator,
+    this.textInputAction,
+    this.onFieldSubmitted,
   });
 
   final TextEditingController controller;
@@ -283,6 +287,8 @@ class _NeonField extends StatefulWidget {
   final IconData icon;
   final TextInputType? keyboardType;
   final String? Function(String?)? validator;
+  final TextInputAction? textInputAction;
+  final void Function(String)? onFieldSubmitted;
 
   @override
   State<_NeonField> createState() => _NeonFieldState();
@@ -328,6 +334,8 @@ class _NeonFieldState extends State<_NeonField> {
               controller: widget.controller,
               keyboardType: widget.keyboardType,
               validator: widget.validator,
+              textInputAction: widget.textInputAction,
+              onFieldSubmitted: widget.onFieldSubmitted,
               style: GoogleFonts.poppins(
                 fontSize: 14,
                 color: _neon,

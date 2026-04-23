@@ -231,6 +231,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
                     hint: 'johndoe@email.com',
                     icon: Icons.email_outlined,
                     keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _handleRequestOtp(),
                     validator: (v) {
                       if (v == null || v.trim().isEmpty) {
                         return 'Email tidak boleh kosong';
@@ -372,6 +374,8 @@ class _NeonField extends StatefulWidget {
     this.keyboardType,
     this.suffixIcon,
     this.validator,
+    this.textInputAction,
+    this.onFieldSubmitted,
   });
 
   final TextEditingController controller;
@@ -382,6 +386,8 @@ class _NeonField extends StatefulWidget {
   final TextInputType? keyboardType;
   final Widget? suffixIcon;
   final String? Function(String?)? validator;
+  final TextInputAction? textInputAction;
+  final void Function(String)? onFieldSubmitted;
 
   @override
   State<_NeonField> createState() => _NeonFieldState();
@@ -427,6 +433,8 @@ class _NeonFieldState extends State<_NeonField> {
               controller: widget.controller,
               obscureText: widget.obscureText,
               keyboardType: widget.keyboardType,
+              textInputAction: widget.textInputAction,
+              onFieldSubmitted: widget.onFieldSubmitted,
               validator: widget.validator,
               style: GoogleFonts.poppins(
                 fontSize: 14,
