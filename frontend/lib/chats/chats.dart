@@ -464,6 +464,14 @@ class _ChatsPageState extends State<ChatsPage>
     }
   }
 
+  Future<void> _stopTTS() async {
+    try {
+      await _chatService.stopTTS();
+    } catch (e) {
+      _showSnack('Gagal menghentikan suara.');
+    }
+  }
+
   Future<void> _resendMessage(ChatMessage msg) async {
     await _sendMessage(overrideText: msg.question, replaceDetailId: msg.id);
   }
@@ -650,7 +658,21 @@ class _ChatsPageState extends State<ChatsPage>
           );
         }
 
-        // done / failed / stopped — semua masuk _MessagePair
+        if (msg.isFailed) {
+          return _ErrorBubble(text: msg.response);
+        }
+
+        if (msg.isStopped) {
+          return _StoppedBubble(
+            response: msg.response,
+            onRegenerate: () => _regenerateResponse(msg),
+            onCopyAnswer: () => _copyText(msg.response),
+            onTTS: () => _playTTS(msg),
+            onStopTTS: _stopTTS,
+          );
+        }
+
+        // status 'done' — jawaban lengkap
         return _MessagePair(
           message: msg,
           onEdit: (newQ) => _editMessage(msg, newQ),
@@ -658,6 +680,7 @@ class _ChatsPageState extends State<ChatsPage>
           onCopyQuestion: () => _copyText(msg.question),
           onCopyAnswer: () => _copyText(msg.response),
           onTTS: () => _playTTS(msg),
+          onStopTTS: _stopTTS,
         );
       },
     );
@@ -861,6 +884,7 @@ class _MessagePair extends StatefulWidget {
     required this.onCopyQuestion,
     required this.onCopyAnswer,
     required this.onTTS,
+    required this.onStopTTS,
   });
 
   final ChatMessage message;
@@ -869,6 +893,7 @@ class _MessagePair extends StatefulWidget {
   final VoidCallback onCopyQuestion;
   final VoidCallback onCopyAnswer;
   final VoidCallback onTTS;
+  final VoidCallback onStopTTS;
 
   @override
   State<_MessagePair> createState() => _MessagePairState();
@@ -1009,30 +1034,20 @@ class _MessagePairState extends State<_MessagePair> {
           const SizedBox(height: 12),
 
           // ── AI response area ──────────────────────────────────────────
-          if (msg.isFailed)
-            _ErrorBubble(text: msg.response)
-          else if (msg.isStopped)
-            _StoppedBubble(
-              response: msg.response,
-              onRegenerate: widget.onRegenerate,
-              onCopyAnswer: widget.onCopyAnswer,
-              onTTS: widget.onTTS,
-            )
-          else
-            // status 'done' — jawaban lengkap
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _AiBubble(text: msg.response),
-                const SizedBox(height: 8),
-                // Action buttons untuk answer (static, selalu tampil)
-                _AnswerActions(
-                  onRegenerate: widget.onRegenerate,
-                  onCopy: widget.onCopyAnswer,
-                  onTTS: widget.onTTS,
-                ),
-              ],
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _AiBubble(text: msg.response),
+              const SizedBox(height: 8),
+              // Action buttons untuk answer (static, selalu tampil)
+              _AnswerActions(
+                onRegenerate: widget.onRegenerate,
+                onCopy: widget.onCopyAnswer,
+                onTTS: widget.onTTS,
+                onStopTTS: widget.onStopTTS,
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -1175,11 +1190,13 @@ class _AnswerActions extends StatelessWidget {
     required this.onRegenerate,
     required this.onCopy,
     required this.onTTS,
+    required this.onStopTTS,
   });
 
   final VoidCallback onRegenerate;
   final VoidCallback onCopy;
   final VoidCallback onTTS;
+  final VoidCallback onStopTTS;
 
   @override
   Widget build(BuildContext context) {
@@ -1187,20 +1204,29 @@ class _AnswerActions extends StatelessWidget {
       padding: const EdgeInsets.only(
         left: 40,
       ), // align dengan AI bubble content
-      child: Row(
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
         children: [
           _ActionChip(
             icon: Icons.refresh_rounded,
             label: 'Generate ulang',
             onTap: onRegenerate,
           ),
-          const SizedBox(width: 8),
-          _ActionChip(icon: Icons.copy_rounded, label: 'Salin', onTap: onCopy),
-          const SizedBox(width: 8),
+          _ActionChip(
+            icon: Icons.copy_rounded,
+            label: 'Salin',
+            onTap: onCopy,
+          ),
           _ActionChip(
             icon: Icons.volume_up_rounded,
             label: 'Dengarkan',
             onTap: onTTS,
+          ),
+          _ActionChip(
+            icon: Icons.volume_off_rounded,
+            label: 'Stop Suara',
+            onTap: onStopTTS,
           ),
         ],
       ),
@@ -1424,12 +1450,14 @@ class _StoppedBubble extends StatelessWidget {
     required this.onRegenerate,
     required this.onCopyAnswer,
     required this.onTTS,
+    required this.onStopTTS,
   });
 
   final String response;
   final VoidCallback onRegenerate;
   final VoidCallback onCopyAnswer;
   final VoidCallback onTTS;
+  final VoidCallback onStopTTS;
 
   @override
   Widget build(BuildContext context) {
@@ -1506,24 +1534,29 @@ class _StoppedBubble extends StatelessWidget {
         // Answer actions
         Padding(
           padding: const EdgeInsets.only(left: 40),
-          child: Row(
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
               _ActionChip(
                 icon: Icons.refresh_rounded,
                 label: 'Generate ulang',
                 onTap: onRegenerate,
               ),
-              const SizedBox(width: 8),
               _ActionChip(
                 icon: Icons.copy_rounded,
                 label: 'Salin',
                 onTap: onCopyAnswer,
               ),
-              const SizedBox(width: 8),
               _ActionChip(
                 icon: Icons.volume_up_rounded,
                 label: 'Dengarkan',
                 onTap: onTTS,
+              ),
+              _ActionChip(
+                icon: Icons.volume_off_rounded,
+                label: 'Stop Suara',
+                onTap: onStopTTS,
               ),
             ],
           ),

@@ -480,7 +480,11 @@ class ChatService {
   }
 
   Future<void> stopTTS() async {
-    await _audioPlayer.stop();
+    try {
+      await _audioPlayer.stop(); // Bug diperbaiki di baris ini
+    } catch (e) {
+      debugPrint('Error stopping TTS: $e');
+    }
   }
 
   // -------------------------------------------------------------------------
