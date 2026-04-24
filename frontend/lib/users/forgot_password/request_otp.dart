@@ -70,9 +70,10 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
   }
 
   // ── Hit API forgot-password ──────────────────────────────────────────────
-
   Future<void> _handleRequestOtp() async {
     if (!_formKey.currentState!.validate()) return;
+    
+    if (!mounted) return; // Safety check pertama
     setState(() => _isLoading = true);
 
     try {
@@ -81,22 +82,48 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
         data: {'email': _emailController.text.trim()},
       );
 
-      if (response.statusCode == 200 && mounted) {
-        final email = Uri.encodeComponent(_emailController.text.trim());
-        context.push('/users/reset-password/otp/verify-otp?email=$email');
+      if (!mounted) return; // Safety check setelah async
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        
+        // Cek apakah email terdaftar
+        if (data['data']?['email_exists'] == true) {
+          if (!mounted) return; // Safety check sebelum navigasi
+          final email = Uri.encodeComponent(_emailController.text.trim());
+          context.push('/users/reset-password/otp/verify-otp?email=$email');
+        } else {
+          _showErrorSnackbar('Email tidak terdaftar. Periksa kembali email Anda.');
+        }
       }
     } on DioException catch (e) {
       if (!mounted) return;
       String message = 'Terjadi kesalahan. Coba lagi.';
-      if (e.type == DioExceptionType.connectionTimeout ||
-          e.type == DioExceptionType.receiveTimeout) {
+      
+      // Lebih detail error handling
+      if (e.type == DioExceptionType.connectionTimeout) {
         message = 'Koneksi timeout. Periksa jaringan kamu.';
-      } else if (e.response?.data['detail'] != null) {
-        message = e.response!.data['detail'].toString();
+      } else if (e.type == DioExceptionType.receiveTimeout) {
+        message = 'Server tidak merespons. Coba lagi nanti.';
+      } else if (e.type == DioExceptionType.badResponse) {
+        final statusCode = e.response?.statusCode;
+        final detail = e.response?.data?['detail'];
+        
+        if (statusCode == 429) {
+          message = 'Terlalu banyak permintaan. Coba lagi nanti.';
+        } else if (detail != null) {
+          message = detail.toString();
+        } else {
+          message = 'Terjadi kesalahan server.';
+        }
+      } else if (e.type == DioExceptionType.connectionError) {
+        message = 'Tidak dapat terhubung ke server.';
       }
+      
       _showErrorSnackbar(message);
-    } catch (_) {
-      if (mounted) _showErrorSnackbar('Terjadi kesalahan tidak terduga.');
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackbar('Terjadi kesalahan tidak terduga.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -134,34 +161,31 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Logo ────────────────────────────────────────────────
-                  _Logo(),
-                  const SizedBox(height: 40),
-
-                  // ── Back button ──────────────────────────────────────────
+                  // ── Tombol Kembali ─────────────────────────────────────
                   GestureDetector(
                     onTap: () => context.pop(),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.arrow_back_ios_new_rounded,
-                          color: _textMuted,
-                          size: 14,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Kembali ke Login',
-                          style: GoogleFonts.poppins(
-                            fontSize: 13,
-                            color: _textMuted,
-                            fontWeight: FontWeight.w500,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: _neonDim,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _neon.withOpacity(0.25),
+                            blurRadius: 12,
+                            spreadRadius: 0,
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: _neon,
+                        size: 24,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 40),
 
                   // ── Heading ──────────────────────────────────────────────
                   Text(
@@ -184,45 +208,6 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
                     ),
                   ),
                   const SizedBox(height: 36),
-
-                  // ── Info card ────────────────────────────────────────────
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _neonDim,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _neon.withOpacity(0.25),
-                        width: 1,
-                      ),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(
-                          Icons.info_outline_rounded,
-                          color: _neon,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Kode OTP berlaku selama 10 menit dan hanya dapat '
-                            'diminta 5 kali per hari.',
-                            style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              color: _neon,
-                              height: 1.5,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 28),
 
                   // ── Email field ──────────────────────────────────────────
                   _NeonField(
@@ -314,48 +299,6 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage>
           ),
         ),
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Logo widget
-// ---------------------------------------------------------------------------
-
-class _Logo extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: _neonDim,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: _neon.withOpacity(0.35),
-                blurRadius: 20,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: const Center(
-            child: Text('🌿', style: TextStyle(fontSize: 26)),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          'AgriBot',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-            letterSpacing: -0.3,
-          ),
-        ),
-      ],
     );
   }
 }

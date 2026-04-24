@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -47,6 +48,7 @@ class _ForgotPasswordVerifyOtpPageState
     extends State<ForgotPasswordVerifyOtpPage>
     with SingleTickerProviderStateMixin {
   final _otpController = TextEditingController();
+  final _otpFocusNode = FocusNode();
 
   bool _isVerifying   = false;
   bool _isResending   = false;
@@ -72,6 +74,7 @@ class _ForgotPasswordVerifyOtpPageState
   void dispose() {
     _fadeController.dispose();
     _otpController.dispose();
+    _otpFocusNode.dispose();
     super.dispose();
   }
 
@@ -180,122 +183,199 @@ class _ForgotPasswordVerifyOtpPageState
     );
   }
 
+  // ── Keyboard handler ──────────────────────────────────────────────────────
+  
+  void _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent && 
+        event.logicalKey == LogicalKeyboardKey.enter &&
+        _otpComplete &&
+        !_isVerifying) {
+      _handleVerify();
+    }
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bg,
-      body: SafeArea(
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── Logo ──────────────────────────────────────────────────
-                _Logo(),
-                const SizedBox(height: 48),
-
-                // ── Title ─────────────────────────────────────────────────
-                Text(
-                  'Verifikasi OTP',
-                  style: GoogleFonts.poppins(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                RichText(
-                  text: TextSpan(
-                    style: GoogleFonts.poppins(
-                      fontSize: 13,
-                      color: _textMuted,
-                      height: 1.6,
-                    ),
-                    children: [
-                      const TextSpan(
-                        text: 'Kode OTP reset password telah dikirim ke\n',
-                      ),
-                      TextSpan(
-                        text: widget.email,
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          color: _neon,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 40),
-
-                // ── OTP Field ─────────────────────────────────────────────
-                _NeonField(
-                  controller: _otpController,
-                  label: 'Kode OTP',
-                  hint: 'Masukkan 6 digit kode OTP',
-                  icon: Icons.pin_outlined,
-                  keyboardType: TextInputType.number,
-                  maxLength: _otpLength,
-                  textInputAction: TextInputAction.done,
-                  onFieldSubmitted: (_) => _handleVerify(),
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: 40),
-
-                // ── Verify button ─────────────────────────────────────────
-                _NeonButton(
-                  label: 'Verifikasi',
-                  isLoading: _isVerifying,
-                  enabled: _otpComplete,
-                  onPressed: _handleVerify,
-                ),
-                const SizedBox(height: 28),
-
-                // ── Resend ────────────────────────────────────────────────
-                Center(
-                  child: _isResending
-                      ? SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: _neon.withOpacity(0.6),
+    return KeyboardListener(
+      focusNode: FocusNode()..requestFocus(),
+      onKeyEvent: _handleKeyEvent,
+      child: Scaffold(
+        backgroundColor: _bg,
+        body: SafeArea(
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── Back button ──────────────────────────────────────────
+                  GestureDetector(
+                    onTap: () => context.pop(),
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: _neonDim,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _neon.withOpacity(0.25),
+                            blurRadius: 12,
+                            spreadRadius: 0,
                           ),
-                        )
-                      : RichText(
-                          text: TextSpan(
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: _neon,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 48),
+
+                  // ── Title ─────────────────────────────────────────────────
+                  Text(
+                    'Verifikasi OTP',
+                    style: GoogleFonts.poppins(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  RichText(
+                    text: TextSpan(
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        color: _textMuted,
+                        height: 1.6,
+                      ),
+                      children: [
+                        const TextSpan(
+                          text: 'Kode OTP reset password telah dikirim ke\n',
+                        ),
+                        TextSpan(
+                          text: widget.email,
+                          style: GoogleFonts.poppins(
+                            fontSize: 13,
+                            color: _neon,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // ── Info card ────────────────────────────────────────────
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _neonDim,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _neon.withOpacity(0.25),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.info_outline_rounded,
+                          color: _neon,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Kode OTP berlaku selama 10 menit dan hanya dapat '
+                            'diminta 5 kali per hari.',
                             style: GoogleFonts.poppins(
-                              fontSize: 13,
-                              color: _textMuted,
+                              fontSize: 12,
+                              color: _neon,
+                              height: 1.5,
                             ),
-                            children: [
-                              const TextSpan(text: 'Tidak menerima kode? '),
-                              WidgetSpan(
-                                alignment: PlaceholderAlignment.middle,
-                                child: GestureDetector(
-                                  onTap: _resendEnabled ? _handleResend : null,
-                                  child: Text(
-                                    'Kirim ulang',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: _resendEnabled
-                                          ? _neon
-                                          : _textMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+
+                  // ── OTP Field ─────────────────────────────────────────────
+                  _NeonField(
+                    controller: _otpController,
+                    focusNode: _otpFocusNode,
+                    label: 'Kode OTP',
+                    hint: 'Masukkan 6 digit kode OTP',
+                    icon: Icons.pin_outlined,
+                    keyboardType: TextInputType.number,
+                    maxLength: _otpLength,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _handleVerify(),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 40),
+
+                  // ── Verify button ─────────────────────────────────────────
+                  _NeonButton(
+                    label: 'Verifikasi',
+                    isLoading: _isVerifying,
+                    enabled: _otpComplete,
+                    onPressed: _handleVerify,
+                  ),
+                  const SizedBox(height: 28),
+
+                  // ── Resend ────────────────────────────────────────────────
+                  Center(
+                    child: _isResending
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: _neon.withOpacity(0.6),
+                            ),
+                          )
+                        : RichText(
+                            text: TextSpan(
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                color: _textMuted,
+                              ),
+                              children: [
+                                const TextSpan(text: 'Tidak menerima kode? '),
+                                WidgetSpan(
+                                  alignment: PlaceholderAlignment.middle,
+                                  child: GestureDetector(
+                                    onTap: _resendEnabled ? _handleResend : null,
+                                    child: Text(
+                                      'Kirim ulang',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: _resendEnabled
+                                            ? _neon
+                                            : _textMuted,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -314,6 +394,7 @@ class _NeonField extends StatefulWidget {
     required this.label,
     required this.hint,
     required this.icon,
+    this.focusNode,
     this.keyboardType,
     this.maxLength,
     this.onChanged,
@@ -325,6 +406,7 @@ class _NeonField extends StatefulWidget {
   final String label;
   final String hint;
   final IconData icon;
+  final FocusNode? focusNode;
   final TextInputType? keyboardType;
   final int? maxLength;
   final ValueChanged<String>? onChanged;
@@ -365,6 +447,7 @@ class _NeonFieldState extends State<_NeonField> {
             onFocusChange: (f) => setState(() => _focused = f),
             child: TextFormField(
               controller: widget.controller,
+              focusNode: widget.focusNode,
               keyboardType: widget.keyboardType,
               maxLength: widget.maxLength,
               onChanged: widget.onChanged,
@@ -410,48 +493,6 @@ class _NeonFieldState extends State<_NeonField> {
                 ),
               ),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Logo
-// ---------------------------------------------------------------------------
-
-class _Logo extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: _neonDim,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: _neon.withOpacity(0.35),
-                blurRadius: 20,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: const Center(
-            child: Text('🌿', style: TextStyle(fontSize: 26)),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          'AgriBot',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-            letterSpacing: -0.3,
           ),
         ),
       ],

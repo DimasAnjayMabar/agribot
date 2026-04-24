@@ -526,87 +526,82 @@ class _UserProfilePageState extends State<UserProfilePage>
                 ? _ErrorView(error: _error!, onRetry: _fetchData)
                 : FadeTransition(
                     opacity: _fadeAnimation,
-                    child: CustomScrollView(
-                      slivers: [
-                        _buildAppBar(),
-                        SliverPadding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 8),
-                          sliver: SliverList(
-                            delegate: SliverChildListDelegate([
-                              _ProfileCard(user: _user!),
-                              const SizedBox(height: 24),
-                              _CredentialCard(
-                                user: _user!,
-                                onChangeEmail: () => context.push(
-                                  '/users/change-email/otp/verify-otp?email=${Uri.encodeComponent(_user!.email)}',
-                                ).then((_) => _fetchData()),
+                    child: Column(
+                      children: [
+                        // Tombol kembali di luar CustomScrollView
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: GestureDetector(
+                              onTap: () {
+                                if (context.canPop()) {
+                                  context.pop();
+                                } else {
+                                  // Fallback: navigasi ke home atau halaman utama
+                                  context.go('/chats'); // atau context.go('/home') sesuai route aplikasi Anda
+                                }
+                              },
+                              child: Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: _neonDim,
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: _neon.withOpacity(0.25),
+                                      blurRadius: 12,
+                                      spreadRadius: 0,
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.arrow_back_rounded,
+                                  color: _neon,
+                                  size: 24,
+                                ),
                               ),
-                              const SizedBox(height: 24),
-                              _SessionsCard(
-                                sessions: _sessions,
-                                onLogoutOtherDevices: _handleLogoutOtherDevices,
+                            ),
+                          ),
+                        ),
+                        // CustomScrollView tanpa AppBar
+                        Expanded(
+                          child: CustomScrollView(
+                            slivers: [
+                              SliverPadding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 24, vertical: 8),
+                                sliver: SliverList(
+                                  delegate: SliverChildListDelegate([
+                                    _ProfileCard(user: _user!),
+                                    const SizedBox(height: 24),
+                                    _CredentialCard(
+                                      user: _user!,
+                                      onChangeEmail: () => context.push(
+                                        '/users/change-email/otp/verify-otp?email=${Uri.encodeComponent(_user!.email)}',
+                                      ).then((_) => _fetchData()),
+                                    ),
+                                    const SizedBox(height: 24),
+                                    _SessionsCard(
+                                      sessions: _sessions,
+                                      onLogoutOtherDevices: _handleLogoutOtherDevices,
+                                    ),
+                                    const SizedBox(height: 32),
+                                    _LogoutButton(
+                                      isLoading: _loadingLogout,
+                                      onPressed: _handleLogout,
+                                    ),
+                                    const SizedBox(height: 32),
+                                  ]),
+                                ),
                               ),
-                              const SizedBox(height: 32),
-                              _LogoutButton(
-                                isLoading: _loadingLogout,
-                                onPressed: _handleLogout,
-                              ),
-                              const SizedBox(height: 32),
-                            ]),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
-      ),
-    );
-  }
-
-  Widget _buildAppBar() {
-    return SliverAppBar(
-      backgroundColor: _bg,
-      pinned: true,
-      elevation: 0,
-      automaticallyImplyLeading: false,
-      title: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: _neonDim,
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                BoxShadow(
-                  color: _neon.withOpacity(0.3),
-                  blurRadius: 14,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text('🌿', style: TextStyle(fontSize: 18)),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            'AgriBot',
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-              letterSpacing: -0.3,
-            ),
-          ),
-        ],
-      ),
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(1),
-        child: Container(
-          height: 1,
-          color: const Color(0xFF111111),
-        ),
       ),
     );
   }

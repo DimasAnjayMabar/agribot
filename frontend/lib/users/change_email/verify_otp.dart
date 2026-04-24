@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -56,6 +57,7 @@ class ChangeEmailVerifyOtpPage extends StatefulWidget {
 class _ChangeEmailVerifyOtpPageState extends State<ChangeEmailVerifyOtpPage>
     with SingleTickerProviderStateMixin {
   final _otpController = TextEditingController();
+  final _focusNode = FocusNode();
 
   bool _isVerifying    = false;
   bool _isResending    = false;
@@ -86,6 +88,7 @@ class _ChangeEmailVerifyOtpPageState extends State<ChangeEmailVerifyOtpPage>
   void dispose() {
     _fadeController.dispose();
     _otpController.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -124,6 +127,10 @@ class _ChangeEmailVerifyOtpPageState extends State<ChangeEmailVerifyOtpPage>
 
   Future<void> _handleVerify() async {
     if (!_otpComplete) return;
+    
+    // Unfocus the text field
+    _focusNode.unfocus();
+    
     setState(() => _isVerifying = true);
     try {
       final response = await _dio.post(
@@ -226,186 +233,264 @@ class _ChangeEmailVerifyOtpPageState extends State<ChangeEmailVerifyOtpPage>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bg,
-      body: SafeArea(
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── Logo ──────────────────────────────────────────────────
-                _Logo(),
-                const SizedBox(height: 48),
-
-                // ── Title ─────────────────────────────────────────────────
-                Text(
-                  'Verifikasi OTP',
-                  style: GoogleFonts.poppins(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                RichText(
-                  text: TextSpan(
-                    style: GoogleFonts.poppins(
-                      fontSize: 13,
-                      color: _textMuted,
-                      height: 1.6,
-                    ),
-                    children: [
-                      const TextSpan(
-                        text: 'Kode OTP ganti email telah dikirim ke\n',
-                      ),
-                      TextSpan(
-                        text: widget.email,
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          color: _neon,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 40),
-
-                // ── Loading / error saat request OTP awal ─────────────────
-                if (_requestingOtp)
-                  Center(
-                    child: Column(
-                      children: [
-                        SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: _neon.withOpacity(0.7),
+    return KeyboardListener(
+      focusNode: FocusNode(),
+      autofocus: true,
+      onKeyEvent: (KeyEvent event) {
+        if (event is KeyDownEvent && 
+            event.logicalKey == LogicalKeyboardKey.enter &&
+            _otpComplete && 
+            !_isVerifying) {
+          _handleVerify();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: _bg,
+        body: SafeArea(
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── Tombol Kembali ────────────────────────────────────────
+                  GestureDetector(
+                    onTap: () {
+                      if (context.canPop()) {
+                        context.pop();
+                      }
+                    },
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: _neonDim,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _neon.withOpacity(0.25),
+                            blurRadius: 12,
+                            spreadRadius: 0,
                           ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: _neon,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 48),
+
+                  // ── Title ─────────────────────────────────────────────────
+                  Text(
+                    'Verifikasi OTP',
+                    style: GoogleFonts.poppins(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  RichText(
+                    text: TextSpan(
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        color: _textMuted,
+                        height: 1.6,
+                      ),
+                      children: [
+                        const TextSpan(
+                          text: 'Kode OTP ganti email telah dikirim ke\n',
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Mengirim kode OTP...',
+                        TextSpan(
+                          text: widget.email,
                           style: GoogleFonts.poppins(
                             fontSize: 13,
-                            color: _textMuted,
+                            color: _neon,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
                     ),
-                  )
-                else if (_requestError != null)
-                  // Error saat request OTP awal — tampilkan pesan + tombol retry
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFF4D4D).withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: const Color(0xFFFF4D4D).withOpacity(0.3),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.error_outline_rounded,
-                              color: Color(0xFFFF4D4D),
-                              size: 18,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                _requestError!,
-                                style: GoogleFonts.poppins(
-                                  fontSize: 13,
-                                  color: const Color(0xFFFF4D4D),
-                                  height: 1.5,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _NeonButton(
-                        label: 'Coba Kirim Ulang',
-                        onPressed: _requestInitialOtp,
-                      ),
-                    ],
-                  )
-                else ...[
-                  // ── OTP Field ───────────────────────────────────────────
-                  _NeonField(
-                    controller: _otpController,
-                    label: 'Kode OTP',
-                    hint: 'Masukkan 6 digit kode OTP',
-                    icon: Icons.pin_outlined,
-                    keyboardType: TextInputType.number,
-                    maxLength: _otpLength,
-                    textInputAction: TextInputAction.done,
-                    onFieldSubmitted: (_) => _handleVerify(),
-                    onChanged: (_) => setState(() {}),
-                  ),
-                  const SizedBox(height: 40),
-
-                  // ── Verify button ────────────────────────────────────────
-                  _NeonButton(
-                    label: 'Verifikasi',
-                    isLoading: _isVerifying,
-                    enabled: _otpComplete,
-                    onPressed: _handleVerify,
                   ),
                   const SizedBox(height: 28),
 
-                  // ── Resend ───────────────────────────────────────────────
-                  Center(
-                    child: _isResending
-                        ? SizedBox(
-                            width: 18,
-                            height: 18,
+                  // ── Info card ────────────────────────────────────────────
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _neonDim,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _neon.withOpacity(0.25),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.info_outline_rounded,
+                          color: _neon,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Kode OTP berlaku selama 10 menit dan hanya dapat '
+                            'diminta 5 kali per hari.',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              color: _neon,
+                              height: 1.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+
+                  // ── Loading / error saat request OTP awal ─────────────────
+                  if (_requestingOtp)
+                    Center(
+                      child: Column(
+                        children: [
+                          SizedBox(
+                            width: 22,
+                            height: 22,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: _neon.withOpacity(0.6),
+                              color: _neon.withOpacity(0.7),
                             ),
-                          )
-                        : RichText(
-                            text: TextSpan(
-                              style: GoogleFonts.poppins(
-                                fontSize: 13,
-                                color: _textMuted,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Mengirim kode OTP...',
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              color: _textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (_requestError != null)
+                    // Error saat request OTP awal — tampilkan pesan + tombol retry
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFF4D4D).withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFFFF4D4D).withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.error_outline_rounded,
+                                color: Color(0xFFFF4D4D),
+                                size: 18,
                               ),
-                              children: [
-                                const TextSpan(text: 'Tidak menerima kode? '),
-                                WidgetSpan(
-                                  alignment: PlaceholderAlignment.middle,
-                                  child: GestureDetector(
-                                    onTap: _resendEnabled ? _handleResend : null,
-                                    child: Text(
-                                      'Kirim ulang',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: _resendEnabled
-                                            ? _neon
-                                            : _textMuted,
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _requestError!,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 13,
+                                    color: const Color(0xFFFF4D4D),
+                                    height: 1.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _NeonButton(
+                          label: 'Coba Kirim Ulang',
+                          onPressed: _requestInitialOtp,
+                        ),
+                      ],
+                    )
+                  else ...[
+                    // ── OTP Field ───────────────────────────────────────────
+                    _NeonField(
+                      controller: _otpController,
+                      focusNode: _focusNode,
+                      label: 'Kode OTP',
+                      hint: 'Masukkan 6 digit kode OTP',
+                      icon: Icons.pin_outlined,
+                      keyboardType: TextInputType.number,
+                      maxLength: _otpLength,
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) => _handleVerify(),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: 40),
+
+                    // ── Verify button ────────────────────────────────────────
+                    _NeonButton(
+                      label: 'Verifikasi',
+                      isLoading: _isVerifying,
+                      enabled: _otpComplete,
+                      onPressed: _handleVerify,
+                    ),
+                    const SizedBox(height: 28),
+
+                    // ── Resend ───────────────────────────────────────────────
+                    Center(
+                      child: _isResending
+                          ? SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: _neon.withOpacity(0.6),
+                              ),
+                            )
+                          : RichText(
+                              text: TextSpan(
+                                style: GoogleFonts.poppins(
+                                  fontSize: 13,
+                                  color: _textMuted,
+                                ),
+                                children: [
+                                  const TextSpan(text: 'Tidak menerima kode? '),
+                                  WidgetSpan(
+                                    alignment: PlaceholderAlignment.middle,
+                                    child: GestureDetector(
+                                      onTap: _resendEnabled ? _handleResend : null,
+                                      child: Text(
+                                        'Kirim ulang',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: _resendEnabled
+                                              ? _neon
+                                              : _textMuted,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                  ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
@@ -421,6 +506,7 @@ class _ChangeEmailVerifyOtpPageState extends State<ChangeEmailVerifyOtpPage>
 class _NeonField extends StatefulWidget {
   const _NeonField({
     required this.controller,
+    required this.focusNode,
     required this.label,
     required this.hint,
     required this.icon,
@@ -432,6 +518,7 @@ class _NeonField extends StatefulWidget {
   });
 
   final TextEditingController controller;
+  final FocusNode focusNode;
   final String label;
   final String hint;
   final IconData icon;
@@ -475,6 +562,7 @@ class _NeonFieldState extends State<_NeonField> {
             onFocusChange: (f) => setState(() => _focused = f),
             child: TextFormField(
               controller: widget.controller,
+              focusNode: widget.focusNode,
               keyboardType: widget.keyboardType,
               maxLength: widget.maxLength,
               onChanged: widget.onChanged,
@@ -520,48 +608,6 @@ class _NeonFieldState extends State<_NeonField> {
                 ),
               ),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Logo
-// ---------------------------------------------------------------------------
-
-class _Logo extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: _neonDim,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: _neon.withOpacity(0.35),
-                blurRadius: 20,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: const Center(
-            child: Text('🌿', style: TextStyle(fontSize: 26)),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          'AgriBot',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-            letterSpacing: -0.3,
           ),
         ),
       ],

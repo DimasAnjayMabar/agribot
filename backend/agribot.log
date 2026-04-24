@@ -3866,3 +3866,358 @@ groq.RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached
 2026-04-23 13:03:12  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=4  detail_id=12  prev_summary=0 char
 2026-04-23 13:03:13  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=4  detail_id=12  (460 char)
 2026-04-23 13:03:13  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=4  detail_id=12
+2026-04-24 10:22:03  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-04-24 10:22:03  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-04-24 10:22:03  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-04-24 10:22:03  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(llama-3.3-70b-versatile)
+2026-04-24 10:22:03  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-04-24 10:22:18  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (14.70s)
+2026-04-24 10:22:18  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-04-24 10:22:26  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (8.73s)
+2026-04-24 10:22:26  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=llama-3.3-70b-versatile
+2026-04-24 10:22:27  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-04-24 10:22:27  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-04-24 10:22:34  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (7.36s)
+2026-04-24 10:22:34  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-04-24 10:22:34  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: F:\proyek magang\chatbot3\chroma_db
+2026-04-24 10:22:41  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-04-24 10:22:41  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-04-24 10:22:41  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-04-24 10:25:24  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Disimpan → user_id=6  user_name='user'
+2026-04-24 10:25:24  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Intent] social — kata sosial terdeteksi
+2026-04-24 10:25:24  [36mINFO    [0m  [38;5;245magribot[0m  Intent terdeteksi: social — query='halo'
+2026-04-24 10:25:25  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Ditemukan user_id=6  (19 char)
+2026-04-24 10:25:26  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Memory] Belum ada recent entries untuk chat_id=42
+2026-04-24 10:25:26  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Hybrid memory siap — chat_id=42  (46 char)
+2026-04-24 10:25:26  [36mINFO    [0m  [38;5;245magribot[0m  [Social] Memory ditemukan (46 char)
+2026-04-24 10:25:26  [36mINFO    [0m  [38;5;245magribot[0m  [Social] Groq few-shot — lang=id  memory=ya  user_id=6  query='halo'
+2026-04-24 10:25:26  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] Generate — model=llama-3.3-70b-versatile  max_tokens=1024  temperature=0.50  top_p=0.95
+2026-04-24 10:25:29  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] ✓ Selesai — 14 chunk  2.973s
+2026-04-24 10:25:29  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=42  detail_id=107  prev_summary=0 char
+2026-04-24 10:25:30  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=42  detail_id=107  (383 char)
+2026-04-24 10:25:31  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=42  detail_id=107
+2026-04-24 10:25:40  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Disimpan → user_id=6  user_name='user'
+2026-04-24 10:25:40  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Intent] social — frasa: 'apa kabar'
+2026-04-24 10:25:40  [36mINFO    [0m  [38;5;245magribot[0m  Intent terdeteksi: social — query='apa kabarmu?'
+2026-04-24 10:25:41  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Ditemukan user_id=6  (19 char)
+2026-04-24 10:25:41  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary ditemukan chat_id=42  (383 char)
+2026-04-24 10:25:41  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent window: 1 entry (dari 1 total) chat_id=42
+2026-04-24 10:25:41  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Hybrid memory siap — chat_id=42  (553 char)
+2026-04-24 10:25:41  [36mINFO    [0m  [38;5;245magribot[0m  [Social] Memory ditemukan (553 char)
+2026-04-24 10:25:41  [36mINFO    [0m  [38;5;245magribot[0m  [Social] Groq few-shot — lang=id  memory=ya  user_id=6  query='apa kabarmu?'
+2026-04-24 10:25:41  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] Generate — model=llama-3.3-70b-versatile  max_tokens=1024  temperature=0.50  top_p=0.95
+2026-04-24 10:25:41  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] ✓ Selesai — 22 chunk  0.487s
+2026-04-24 10:25:42  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=42  detail_id=108  prev_summary=383 char
+2026-04-24 10:25:43  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=42  detail_id=108  (673 char)
+2026-04-24 10:25:43  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=42  detail_id=108
+2026-04-24 11:38:54  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-04-24 11:38:54  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-04-24 11:38:54  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-04-24 11:38:54  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(llama-3.3-70b-versatile)
+2026-04-24 11:38:54  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-04-24 11:39:07  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (13.31s)
+2026-04-24 11:39:07  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-04-24 11:39:15  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (8.37s)
+2026-04-24 11:39:15  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=llama-3.3-70b-versatile
+2026-04-24 11:39:16  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-04-24 11:39:16  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-04-24 11:39:23  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (6.65s)
+2026-04-24 11:39:23  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-04-24 11:39:23  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: F:\proyek magang\chatbot3\chroma_db
+2026-04-24 11:39:27  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-04-24 11:39:27  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-04-24 11:39:27  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-04-24 11:46:42  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-04-24 11:46:42  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-04-24 11:46:42  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-04-24 11:46:42  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(llama-3.3-70b-versatile)
+2026-04-24 11:46:42  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-04-24 11:47:04  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (21.16s)
+2026-04-24 11:47:04  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-04-24 11:47:19  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (15.83s)
+2026-04-24 11:47:19  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=llama-3.3-70b-versatile
+2026-04-24 11:47:21  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-04-24 11:47:21  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-04-24 11:47:31  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (10.38s)
+2026-04-24 11:47:31  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-04-24 11:47:31  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: F:\proyek magang\chatbot3\chroma_db
+2026-04-24 11:47:36  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-04-24 11:47:36  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-04-24 11:47:36  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-04-24 11:57:25  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-04-24 11:57:25  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-04-24 11:57:25  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-04-24 11:57:25  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(llama-3.3-70b-versatile)
+2026-04-24 11:57:25  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-04-24 11:57:35  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (10.77s)
+2026-04-24 11:57:35  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-04-24 11:57:44  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (8.31s)
+2026-04-24 11:57:44  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=llama-3.3-70b-versatile
+2026-04-24 11:57:44  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-04-24 11:57:44  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-04-24 11:57:51  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (6.58s)
+2026-04-24 11:57:51  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-04-24 11:57:51  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: F:\proyek magang\chatbot3\chroma_db
+2026-04-24 11:57:55  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-04-24 11:57:55  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-04-24 11:57:55  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-04-24 11:59:38  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-04-24 11:59:38  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-04-24 11:59:38  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-04-24 11:59:38  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(llama-3.3-70b-versatile)
+2026-04-24 11:59:38  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-04-24 11:59:53  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (14.57s)
+2026-04-24 11:59:53  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-04-24 12:00:05  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (12.51s)
+2026-04-24 12:00:05  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=llama-3.3-70b-versatile
+2026-04-24 12:00:07  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-04-24 12:00:07  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-04-24 12:00:18  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (11.14s)
+2026-04-24 12:00:18  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-04-24 12:00:18  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: F:\proyek magang\chatbot3\chroma_db
+2026-04-24 12:00:22  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-04-24 12:00:22  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-04-24 12:00:22  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-04-24 12:05:10  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Disimpan → user_id=6  user_name='user'
+2026-04-24 12:05:10  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Intent] knowledge — tanda tanya
+2026-04-24 12:05:10  [36mINFO    [0m  [38;5;245magribot[0m  Intent terdeteksi: knowledge — query='siapa namamu?'
+2026-04-24 12:05:10  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-04-24 12:05:10  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Query: 'siapa namamu?'  chat_id=42
+2026-04-24 12:05:10  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Bahasa terdeteksi: id
+2026-04-24 12:05:10  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [NLP-ID] keywords: siapa namamu
+2026-04-24 12:05:10  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Knowledge] Query diperkaya: 'siapa namamu? siapa namamu'
+2026-04-24 12:05:10  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] ChromaDB retrieval (k=30)...
+2026-04-24 12:05:11  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  ChromaDB: 30 kandidat ditemukan (k=30)
+2026-04-24 12:05:11  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] 30 kandidat ditemukan  (0.566s)
+2026-04-24 12:05:11  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] Neo4j enrichment (30 kandidat, window=±2)...
+2026-04-24 12:05:13  [31mERROR   [0m  [38;5;245magribot[0m  Neo4j enrichment gagal (30 isi_id)
+  | ExceptionGroup: All routing table requests failed (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_async_compat\network\_bolt_socket.py", line 512, in _connect_secure
+    |     s.connect(resolved_address)
+    | ConnectionRefusedError: [WinError 10061] No connection could be made because the target machine actively refused it
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_bolt_socket.py", line 329, in connect
+    |     s = cls._connect_secure(
+    |         ^^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_async_compat\network\_bolt_socket.py", line 523, in _connect_secure
+    |     raise ServiceUnavailable(
+    | neo4j.exceptions.ServiceUnavailable: Failed to establish connection to ResolvedIPv4Address(('127.0.0.1', 7687)) (reason [WinError 10061] No connection could be made because the target machine actively refused it)
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 833, in fetch_routing_table
+    |     new_routing_info = self.fetch_routing_info(
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 792, in fetch_routing_info
+    |     cx = self._acquire(address, auth, deadline, None)
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 418, in _acquire
+    |     return connection_creator()
+    |            ^^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 231, in connection_creator
+    |     connection = self.opener(
+    |                  ^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 711, in opener
+    |     return Bolt.open(
+    |            ^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_bolt.py", line 368, in open
+    |     s, protocol_version = BoltSocket.connect(
+    |                           ^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_bolt_socket.py", line 380, in connect
+    |     raise ServiceUnavailable(
+    | neo4j.exceptions.ServiceUnavailable: Couldn't connect to 127.0.0.1:7687 (resolved to ('127.0.0.1:7687',)):
+    | Failed to establish connection to ResolvedIPv4Address(('127.0.0.1', 7687)) (reason [WinError 10061] No connection could be made because the target machine actively refused it)
+    +------------------------------------
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "F:\proyek magang\chatbot3\pipeline.py", line 610, in enrich
+    for rec in session.run(cypher, isi_ids=isi_ids):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\work\session.py", line 305, in run
+    self._connect(self._config.default_access_mode)
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\work\session.py", line 126, in _connect
+    super()._connect(
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\work\workspace.py", line 166, in _connect
+    target_db = self._get_routing_target_database(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\work\workspace.py", line 244, in _get_routing_target_database
+    self._pool.update_routing_table(
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 1076, in update_routing_table
+    raise ServiceUnavailable(
+neo4j.exceptions.ServiceUnavailable: Unable to retrieve routing information
+2026-04-24 12:05:13  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  Neo4j enrich: 0/30 berhasil diperkaya
+2026-04-24 12:05:13  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] 0 chunk diperkaya  (2.449s)
+2026-04-24 12:05:13  [33mWARNING [0m  [38;5;245magribot[0m  [Tahap 2] Enrichment kosong — pipeline berhenti.
+2026-04-24 12:05:14  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=42  detail_id=109  prev_summary=673 char
+2026-04-24 12:05:16  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=42  detail_id=109  (963 char)
+2026-04-24 12:05:16  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=42  detail_id=109
+2026-04-24 12:06:19  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Disimpan → user_id=6  user_name='user'
+2026-04-24 12:06:20  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Intent] knowledge — tanda tanya
+2026-04-24 12:06:20  [36mINFO    [0m  [38;5;245magribot[0m  Intent terdeteksi: knowledge — query='siapa namamu?'
+2026-04-24 12:06:20  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-04-24 12:06:20  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Query: 'siapa namamu?'  chat_id=42
+2026-04-24 12:06:20  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Bahasa terdeteksi: id
+2026-04-24 12:06:20  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [NLP-ID] keywords: siapa namamu
+2026-04-24 12:06:20  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Knowledge] Query diperkaya: 'siapa namamu? siapa namamu'
+2026-04-24 12:06:20  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] ChromaDB retrieval (k=30)...
+2026-04-24 12:06:20  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  ChromaDB: 30 kandidat ditemukan (k=30)
+2026-04-24 12:06:20  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] 30 kandidat ditemukan  (0.212s)
+2026-04-24 12:06:20  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] Neo4j enrichment (30 kandidat, window=±2)...
+2026-04-24 12:06:22  [31mERROR   [0m  [38;5;245magribot[0m  Neo4j enrichment gagal (30 isi_id)
+  | ExceptionGroup: All routing table requests failed (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_async_compat\network\_bolt_socket.py", line 512, in _connect_secure
+    |     s.connect(resolved_address)
+    | ConnectionRefusedError: [WinError 10061] No connection could be made because the target machine actively refused it
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_bolt_socket.py", line 329, in connect
+    |     s = cls._connect_secure(
+    |         ^^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_async_compat\network\_bolt_socket.py", line 523, in _connect_secure
+    |     raise ServiceUnavailable(
+    | neo4j.exceptions.ServiceUnavailable: Failed to establish connection to ResolvedIPv4Address(('127.0.0.1', 7687)) (reason [WinError 10061] No connection could be made because the target machine actively refused it)
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 833, in fetch_routing_table
+    |     new_routing_info = self.fetch_routing_info(
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 792, in fetch_routing_info
+    |     cx = self._acquire(address, auth, deadline, None)
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 418, in _acquire
+    |     return connection_creator()
+    |            ^^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 231, in connection_creator
+    |     connection = self.opener(
+    |                  ^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 711, in opener
+    |     return Bolt.open(
+    |            ^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_bolt.py", line 368, in open
+    |     s, protocol_version = BoltSocket.connect(
+    |                           ^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_bolt_socket.py", line 380, in connect
+    |     raise ServiceUnavailable(
+    | neo4j.exceptions.ServiceUnavailable: Couldn't connect to 127.0.0.1:7687 (resolved to ('127.0.0.1:7687',)):
+    | Failed to establish connection to ResolvedIPv4Address(('127.0.0.1', 7687)) (reason [WinError 10061] No connection could be made because the target machine actively refused it)
+    +------------------------------------
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "F:\proyek magang\chatbot3\pipeline.py", line 610, in enrich
+    for rec in session.run(cypher, isi_ids=isi_ids):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\work\session.py", line 305, in run
+    self._connect(self._config.default_access_mode)
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\work\session.py", line 126, in _connect
+    super()._connect(
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\work\workspace.py", line 166, in _connect
+    target_db = self._get_routing_target_database(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\work\workspace.py", line 244, in _get_routing_target_database
+    self._pool.update_routing_table(
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 1076, in update_routing_table
+    raise ServiceUnavailable(
+neo4j.exceptions.ServiceUnavailable: Unable to retrieve routing information
+2026-04-24 12:06:23  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  Neo4j enrich: 0/30 berhasil diperkaya
+2026-04-24 12:06:23  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] 0 chunk diperkaya  (2.230s)
+2026-04-24 12:06:23  [33mWARNING [0m  [38;5;245magribot[0m  [Tahap 2] Enrichment kosong — pipeline berhenti.
+2026-04-24 12:06:23  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=42  detail_id=109  prev_summary=0 char
+2026-04-24 12:06:24  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=42  detail_id=109  (367 char)
+2026-04-24 12:06:24  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=42  detail_id=109
+2026-04-24 12:06:33  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Disimpan → user_id=6  user_name='user'
+2026-04-24 12:06:34  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Intent] knowledge — tanda tanya
+2026-04-24 12:06:34  [36mINFO    [0m  [38;5;245magribot[0m  Intent terdeteksi: knowledge — query='siapa namamu?'
+2026-04-24 12:06:34  [36mINFO    [0m  [38;5;245magribot[0m  ════════════════════════════════════════════════════════════
+2026-04-24 12:06:34  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Query: 'siapa namamu?'  chat_id=42
+2026-04-24 12:06:34  [36mINFO    [0m  [38;5;245magribot[0m  [Knowledge] Bahasa terdeteksi: id
+2026-04-24 12:06:34  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [NLP-ID] keywords: siapa namamu
+2026-04-24 12:06:34  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Knowledge] Query diperkaya: 'siapa namamu? siapa namamu'
+2026-04-24 12:06:34  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] ChromaDB retrieval (k=30)...
+2026-04-24 12:06:34  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  ChromaDB: 30 kandidat ditemukan (k=30)
+2026-04-24 12:06:34  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 1] 30 kandidat ditemukan  (0.093s)
+2026-04-24 12:06:34  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] Neo4j enrichment (30 kandidat, window=±2)...
+2026-04-24 12:06:36  [31mERROR   [0m  [38;5;245magribot[0m  Neo4j enrichment gagal (30 isi_id)
+  | ExceptionGroup: All routing table requests failed (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_async_compat\network\_bolt_socket.py", line 512, in _connect_secure
+    |     s.connect(resolved_address)
+    | ConnectionRefusedError: [WinError 10061] No connection could be made because the target machine actively refused it
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_bolt_socket.py", line 329, in connect
+    |     s = cls._connect_secure(
+    |         ^^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_async_compat\network\_bolt_socket.py", line 523, in _connect_secure
+    |     raise ServiceUnavailable(
+    | neo4j.exceptions.ServiceUnavailable: Failed to establish connection to ResolvedIPv4Address(('127.0.0.1', 7687)) (reason [WinError 10061] No connection could be made because the target machine actively refused it)
+    | 
+    | The above exception was the direct cause of the following exception:
+    | 
+    | Traceback (most recent call last):
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 833, in fetch_routing_table
+    |     new_routing_info = self.fetch_routing_info(
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 792, in fetch_routing_info
+    |     cx = self._acquire(address, auth, deadline, None)
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 418, in _acquire
+    |     return connection_creator()
+    |            ^^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 231, in connection_creator
+    |     connection = self.opener(
+    |                  ^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 711, in opener
+    |     return Bolt.open(
+    |            ^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_bolt.py", line 368, in open
+    |     s, protocol_version = BoltSocket.connect(
+    |                           ^^^^^^^^^^^^^^^^^^^
+    |   File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_bolt_socket.py", line 380, in connect
+    |     raise ServiceUnavailable(
+    | neo4j.exceptions.ServiceUnavailable: Couldn't connect to 127.0.0.1:7687 (resolved to ('127.0.0.1:7687',)):
+    | Failed to establish connection to ResolvedIPv4Address(('127.0.0.1', 7687)) (reason [WinError 10061] No connection could be made because the target machine actively refused it)
+    +------------------------------------
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "F:\proyek magang\chatbot3\pipeline.py", line 610, in enrich
+    for rec in session.run(cypher, isi_ids=isi_ids):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\work\session.py", line 305, in run
+    self._connect(self._config.default_access_mode)
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\work\session.py", line 126, in _connect
+    super()._connect(
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\work\workspace.py", line 166, in _connect
+    target_db = self._get_routing_target_database(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\work\workspace.py", line 244, in _get_routing_target_database
+    self._pool.update_routing_table(
+  File "F:\proyek magang\chatbot3\venv\Lib\site-packages\neo4j\_sync\io\_pool.py", line 1076, in update_routing_table
+    raise ServiceUnavailable(
+neo4j.exceptions.ServiceUnavailable: Unable to retrieve routing information
+2026-04-24 12:06:36  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  Neo4j enrich: 0/30 berhasil diperkaya
+2026-04-24 12:06:36  [36mINFO    [0m  [38;5;245magribot[0m  [Tahap 2] 0 chunk diperkaya  (2.048s)
+2026-04-24 12:06:36  [33mWARNING [0m  [38;5;245magribot[0m  [Tahap 2] Enrichment kosong — pipeline berhenti.
+2026-04-24 12:06:36  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=42  detail_id=109  prev_summary=0 char
+2026-04-24 12:06:37  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=42  detail_id=109  (340 char)
+2026-04-24 12:06:37  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=42  detail_id=109

@@ -185,3 +185,8 @@ class PipelineLog(Base):
 
     # Relationships
     chat_detail = relationship("ChatDetail", back_populates="pipeline_log")
+
+class Documents(Base):
+    __tablename__ = "documents"
+    id = Column(Integer, primary_key=True, index=True)
+    hash_value = Column(Text, unique=True, index=True)

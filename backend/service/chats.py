@@ -7,7 +7,8 @@ from datetime import datetime
 import time
 import logging
 from fastapi import HTTPException, status
-from models import Chat, ChatDetail, PipelineLog
+from models import Chat, ChatDetail, PipelineLog, Documents
+import hashlib
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from pipeline import get_rag_pipeline
@@ -794,12 +795,13 @@ class KnowledgeService:
 
     @staticmethod
     def upload_pdf(
+        db: Session,
         file_bytes: bytes,
         filename:   str,
         judul:      str | None = None,
         penulis:    str | None = None,
         tahun:      str | None = None,
-        user_id:    int | None = None,
+        user_id:    int | None = None
     ) -> dict:
         """
         Simpan PDF ke ./dataset/ lalu jalankan embedder di background thread.
@@ -838,12 +840,34 @@ class KnowledgeService:
 
         dest_path = dataset_dir / safe_name
 
-        # ── Simpan ke disk ────────────────────────────────────────────────────
+        file_hash = hashlib.md5(file_bytes).hexdigest()
+
+        # Cek duplikat
+        if db.query(Documents).filter(Documents.hash_value == file_hash).first():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="File ini sudah pernah diupload sebelumnya.",
+            )
+
+        # ── Simpan ke disk dulu ───────────────────────────────────────────────
         dest_path.write_bytes(file_bytes)
         logger.info(
             f"[KnowledgeUpload] File disimpan → {dest_path}  "
             f"size={len(file_bytes)} bytes  user_id={user_id}"
         )
+
+        # ── Baru simpan hash ke DB setelah file berhasil tersimpan ───────────
+        try:
+            db.add(Documents(hash_value=file_hash))
+            db.commit()
+        except Exception as exc:
+            # Rollback DB dan hapus file yang sudah terlanjur tersimpan
+            db.rollback()
+            dest_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Gagal menyimpan data file.",
+            ) from exc
 
         # ── Susun metadata jurnal ─────────────────────────────────────────────
         # Nama file asli (tanpa prefix timestamp dan ekstensi) sebagai fallback judul

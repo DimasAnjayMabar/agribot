@@ -146,8 +146,8 @@ class _RegisterPageState extends State<RegisterPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Logo ────────────────────────────────────────────────
-                  _Logo(),
+                  // ── Back Button (replaces logo & title) ─────────────────
+                  const _BackButton(),
                   const SizedBox(height: 40),
 
                   // ── Heading ─────────────────────────────────────────────
@@ -179,9 +179,8 @@ class _RegisterPageState extends State<RegisterPage>
                     icon: Icons.person_outline_rounded,
                     textInputAction: TextInputAction.next,
                     onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
-                    validator: (v) => (v == null || v.isEmpty)
-                        ? 'Nama tidak boleh kosong'
-                        : null,
+                    validator: (v) =>
+                        (v == null || v.isEmpty) ? 'Nama tidak boleh kosong' : null,
                   ),
                   const SizedBox(height: 20),
 
@@ -207,8 +206,7 @@ class _RegisterPageState extends State<RegisterPage>
                     textInputAction: TextInputAction.next,
                     onFieldSubmitted: (_) => FocusScope.of(context).nextFocus(),
                     validator: (v) {
-                      if (v == null || v.isEmpty)
-                        return 'Email tidak boleh kosong';
+                      if (v == null || v.isEmpty) return 'Email tidak boleh kosong';
                       if (!v.contains('@')) return 'Format email tidak valid';
                       return null;
                     },
@@ -222,7 +220,7 @@ class _RegisterPageState extends State<RegisterPage>
                     icon: Icons.lock_outline_rounded,
                     obscureText: _obscurePassword,
                     textInputAction: TextInputAction.done,
-                    onFieldSubmitted: (_) => _handleRegister(),
+                    onFieldSubmitted: (_) => _handleRegister(), // Enter key triggers registration
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword
@@ -235,8 +233,7 @@ class _RegisterPageState extends State<RegisterPage>
                           setState(() => _obscurePassword = !_obscurePassword),
                     ),
                     validator: (v) {
-                      if (v == null || v.isEmpty)
-                        return 'Password tidak boleh kosong';
+                      if (v == null || v.isEmpty) return 'Password tidak boleh kosong';
                       if (v.length < 8) return 'Password minimal 8 karakter';
                       return null;
                     },
@@ -288,44 +285,51 @@ class _RegisterPageState extends State<RegisterPage>
 }
 
 // ---------------------------------------------------------------------------
-// Logo widget
+// Back Button Widget (Replaces Logo & Title)
 // ---------------------------------------------------------------------------
 
-class _Logo extends StatelessWidget {
+class _BackButton extends StatelessWidget {
+  const _BackButton();
+
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        // Glow container di belakang emoji
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: _neonDim,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: _neon.withOpacity(0.35),
-                blurRadius: 20,
-                spreadRadius: 2,
-              ),
-            ],
+    return GestureDetector(
+      onTap: () {
+        // Navigate back to the previous screen (e.g., login or home)
+        if (Navigator.canPop(context)) {
+          Navigator.pop(context);
+        } else {
+          // Fallback: go to login page if no back history exists
+          context.go('/users/login');
+        }
+      },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Neon-styled back icon inside a subtle container
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: _neonDim,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: _neon.withOpacity(0.25),
+                  blurRadius: 12,
+                  spreadRadius: 0,
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.arrow_back_rounded,
+              color: _neon,
+              size: 24,
+            ),
           ),
-          child: const Center(
-            child: Text('🌿', style: TextStyle(fontSize: 26)),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          'AgriBot',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-            letterSpacing: -0.3,
-          ),
-        ),
-      ],
+          const SizedBox(width: 12),
+        ],
+      ),
     );
   }
 }

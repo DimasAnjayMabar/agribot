@@ -654,7 +654,8 @@ class UserService:
     def request_reset_password_otp(db: Session, email: str):
         user = db.query(User).filter(User.email == email).first()
         if not user:
-            return True
+            # Kembalikan status khusus untuk memberi tahu frontend
+            return {"status": "not_found", "message": "Email tidak terdaftar"}
         if not user.is_verified:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Akun belum diverifikasi.")
 
@@ -676,7 +677,7 @@ class UserService:
         if not sent:
             logger.warning(f"Reset OTP email gagal → user_id: {user.id}")
 
-        return True
+        return {"status": "success", "message": "OTP berhasil dikirim"}
 
     @staticmethod
     def verify_reset_password_otp(db: Session, otp_input: VerifyOtp):

@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -148,119 +149,118 @@ class _ChangeEmailPageState extends State<ChangeEmailPage>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bg,
-      body: SafeArea(
-        child: FadeTransition(
-          opacity: _fadeAnimation,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── Logo ──────────────────────────────────────────────────
-                  _Logo(),
-                  const SizedBox(height: 40),
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        // ⬇️ Tekan Enter untuk submit (selama loading tidak bisa)
+        const SingleActivator(LogicalKeyboardKey.enter): () {
+          if (!_isLoading) _handleChangeEmail();
+        },
+        // ⬇️ Tekan Numpad Enter juga bisa
+        const SingleActivator(LogicalKeyboardKey.numpadEnter): () {
+          if (!_isLoading) _handleChangeEmail();
+        },
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          backgroundColor: _bg,
+          body: SafeArea(
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ── Tombol Kembali ────────────────────────────────────
+                      GestureDetector(
+                        onTap: () {
+                          if (context.canPop()) {
+                            context.pop();
+                          }
+                        },
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: _neonDim,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: _neon.withOpacity(0.25),
+                                blurRadius: 12,
+                                spreadRadius: 0,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.arrow_back_rounded,
+                            color: _neon,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 40),
 
-                  // ── Heading ───────────────────────────────────────────────
-                  Text(
-                    'Ganti Email',
-                    style: GoogleFonts.poppins(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Masukkan alamat email baru untuk akunmu.',
-                    style: GoogleFonts.poppins(
-                      fontSize: 13,
-                      color: _textMuted,
-                      height: 1.6,
-                    ),
-                  ),
-                  const SizedBox(height: 36),
+                      // ── Heading ───────────────────────────────────────────
+                      Text(
+                        'Ganti Email',
+                        style: GoogleFonts.poppins(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Masukkan alamat email baru untuk akunmu.',
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          color: _textMuted,
+                          height: 1.6,
+                        ),
+                      ),
+                      const SizedBox(height: 36),
 
-                  // ── Email baru ────────────────────────────────────────────
-                  _NeonField(
-                    controller: _newEmailController,
-                    label: 'Email Baru',
-                    hint: 'contoh@email.com',
-                    icon: Icons.mail_outline_rounded,
-                    keyboardType: TextInputType.emailAddress,
-                    textInputAction: TextInputAction.done,
-                    onFieldSubmitted: (_) => _handleChangeEmail(),
-                    validator: (v) {
-                      if (v == null || v.trim().isEmpty) {
-                        return 'Email tidak boleh kosong';
-                      }
-                      final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-                      if (!emailRegex.hasMatch(v.trim())) {
-                        return 'Format email tidak valid';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 32),
+                      // ── Email baru ────────────────────────────────────────
+                      _NeonField(
+                        controller: _newEmailController,
+                        label: 'Email Baru',
+                        hint: 'contoh@email.com',
+                        icon: Icons.mail_outline_rounded,
+                        keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) => _handleChangeEmail(),
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) {
+                            return 'Email tidak boleh kosong';
+                          }
+                          final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                          if (!emailRegex.hasMatch(v.trim())) {
+                            return 'Format email tidak valid';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 32),
 
-                  // ── Submit button ─────────────────────────────────────────
-                  _NeonButton(
-                    label: 'Simpan Email Baru',
-                    isLoading: _isLoading,
-                    onPressed: _handleChangeEmail,
+                      // ── Submit button ─────────────────────────────────────
+                      _NeonButton(
+                        label: 'Simpan Email Baru',
+                        isLoading: _isLoading,
+                        onPressed: _handleChangeEmail,
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
         ),
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Logo widget
-// ---------------------------------------------------------------------------
-
-class _Logo extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: _neonDim,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: _neon.withOpacity(0.35),
-                blurRadius: 20,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: const Center(
-            child: Text('🌿', style: TextStyle(fontSize: 26)),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          'AgriBot',
-          style: GoogleFonts.poppins(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-            letterSpacing: -0.3,
-          ),
-        ),
-      ],
     );
   }
 }

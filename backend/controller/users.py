@@ -307,10 +307,23 @@ def logout_other_devices(
 def request_reset_password_otp(body: RequestOtpSchema, db: Session = Depends(get_db)):
     logger.debug(f"POST /reset-password/request-otp → {body.email}")
     try:
-        UserService.request_reset_password_otp(db, body.email)
+        result = UserService.request_reset_password_otp(db, body.email)
+        if result["status"] == "not_found":
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "success": True,
+                    "message": "Email tidak terdaftar.",
+                    "data": {"email_exists": False}
+                }
+            )
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content={"success": True, "message": "Jika email terdaftar, OTP akan dikirimkan."}
+            content={
+                "success": True,
+                "message": "OTP berhasil dikirim.",
+                "data": {"email_exists": True}
+            }
         )
     except HTTPException as e:
         logger.warning(f"POST /reset-password/request-otp failed → {e.detail}")
