@@ -4221,3 +4221,20 @@ neo4j.exceptions.ServiceUnavailable: Unable to retrieve routing information
 2026-04-24 12:06:36  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=42  detail_id=109  prev_summary=0 char
 2026-04-24 12:06:37  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=42  detail_id=109  (340 char)
 2026-04-24 12:06:37  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=42  detail_id=109
+2026-04-27 10:34:04  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-04-27 10:34:04  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-04-27 10:34:04  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-04-27 10:34:04  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(llama-3.3-70b-versatile)
+2026-04-27 10:34:04  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-04-27 10:34:18  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (14.07s)
+2026-04-27 10:34:18  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-04-27 10:34:25  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (7.18s)
+2026-04-27 10:34:25  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=llama-3.3-70b-versatile
+2026-04-27 10:34:26  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-04-27 10:34:26  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-04-27 10:34:34  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (8.08s)
+2026-04-27 10:34:34  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-04-27 10:34:34  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: F:\proyek magang\chatbot3\chroma_db
+2026-04-27 10:34:40  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (330 dokumen)
+2026-04-27 10:34:40  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-04-27 10:34:40  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.

@@ -60,7 +60,8 @@ class _ChatsPageState extends State<ChatsPage>
     with SingleTickerProviderStateMixin {
   late final ChatService _chatService;
 
-  bool _sidebarOpen = true;
+  bool _sidebarOpen = false; // akan di-set ulang di didChangeDependencies
+  bool _sidebarInitialized = false;
   late final AnimationController _sidebarCtrl;
   late final Animation<double> _sidebarAnim;
 
@@ -105,6 +106,22 @@ class _ChatsPageState extends State<ChatsPage>
     );
 
     _initAuth();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Set sidebar open state hanya sekali saat pertama kali build
+    if (!_sidebarInitialized) {
+      _sidebarInitialized = true;
+      final isMobile = MediaQuery.of(context).size.width < 768;
+      _sidebarOpen = !isMobile; // mobile: tutup, desktop: buka
+      if (_sidebarOpen) {
+        _sidebarCtrl.value = 1.0;
+      } else {
+        _sidebarCtrl.value = 0.0;
+      }
+    }
   }
 
   @override
@@ -539,72 +556,110 @@ class _ChatsPageState extends State<ChatsPage>
     final int? pendingDetailId = _trackers.isNotEmpty
         ? _trackers.keys.first
         : null;
+    final isMobile = MediaQuery.of(context).size.width < 768;
+
+    // Widget konten utama (topbar + body + input)
+    final mainContent = Column(
+      children: [
+        _ChatTopBar(
+          sidebarOpen: _sidebarOpen,
+          onToggleSidebar: _toggleSidebar,
+          title: _activeChatId != null
+              ? _topics
+                    .firstWhere(
+                      (t) => t.id == _activeChatId,
+                      orElse: () => ChatTopic(
+                        id: 0,
+                        title: 'Chat',
+                        createdAt: '',
+                      ),
+                    )
+                    .title
+              : 'Chat Baru',
+          hasPending: _trackers.isNotEmpty,
+        ),
+        Expanded(child: _buildBody()),
+        _InputBar(
+          controller: _inputCtrl,
+          focusNode: _inputFocus,
+          sending: _sending,
+          onSend: () => _sendMessage(),
+          onUploadPdf: _uploadPdf,
+          pendingDetailId: pendingDetailId,
+          onStop: pendingDetailId != null
+              ? () => _stopGeneration(pendingDetailId)
+              : null,
+        ),
+      ],
+    );
+
+    final sidebarWidget = ChatSidebar(
+      topics: _topics,
+      loading: _loadingTopics,
+      activeChatId: _activeChatId,
+      profile: _profile,
+      renamingId: _renamingId,
+      renamingTemp: _renamingTemp,
+      onNewChat: _newChat,
+      onSelectTopic: _selectTopic,
+      onDeleteTopic: _deleteTopic,
+      onStartRename: (t) => setState(() {
+        _renamingId = t.id;
+        _renamingTemp = t.title;
+      }),
+      onConfirmRename: (t, v) => _renameTopic(t, v),
+      onCancelRename: () => setState(() => _renamingId = null),
+      onRenameChange: (v) => setState(() => _renamingTemp = v),
+      onProfileTap: () => context.go('/user_profile'),
+      onLogout: _logout,
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFF020202),
-      body: Row(
-        children: [
-          SizeTransition(
-            sizeFactor: _sidebarAnim,
-            axis: Axis.horizontal,
-            child: ChatSidebar(
-              topics: _topics,
-              loading: _loadingTopics,
-              activeChatId: _activeChatId,
-              profile: _profile,
-              renamingId: _renamingId,
-              renamingTemp: _renamingTemp,
-              onNewChat: _newChat,
-              onSelectTopic: _selectTopic,
-              onDeleteTopic: _deleteTopic,
-              onStartRename: (t) => setState(() {
-                _renamingId = t.id;
-                _renamingTemp = t.title;
-              }),
-              onConfirmRename: (t, v) => _renameTopic(t, v),
-              onCancelRename: () => setState(() => _renamingId = null),
-              onRenameChange: (v) => setState(() => _renamingTemp = v),
-              onProfileTap: () => context.go('/user_profile'),
-              onLogout: _logout,
-            ),
-          ),
-          Expanded(
-            child: Column(
+      body: isMobile
+          // ── Mobile: sidebar sebagai overlay di atas konten ──────────────
+          ? Stack(
               children: [
-                _ChatTopBar(
-                  sidebarOpen: _sidebarOpen,
-                  onToggleSidebar: _toggleSidebar,
-                  title: _activeChatId != null
-                      ? _topics
-                            .firstWhere(
-                              (t) => t.id == _activeChatId,
-                              orElse: () => ChatTopic(
-                                id: 0,
-                                title: 'Chat',
-                                createdAt: '',
-                              ),
-                            )
-                            .title
-                      : 'Chat Baru',
-                  hasPending: _trackers.isNotEmpty,
-                ),
-                Expanded(child: _buildBody()),
-                _InputBar(
-                  controller: _inputCtrl,
-                  focusNode: _inputFocus,
-                  sending: _sending,
-                  onSend: () => _sendMessage(),
-                  onUploadPdf: _uploadPdf,
-                  pendingDetailId: pendingDetailId,
-                  onStop: pendingDetailId != null
-                      ? () => _stopGeneration(pendingDetailId)
-                      : null,
+                // Konten utama selalu full width
+                mainContent,
+
+                // Overlay gelap saat sidebar terbuka
+                if (_sidebarOpen)
+                  GestureDetector(
+                    onTap: _toggleSidebar,
+                    child: Container(
+                      color: Colors.black54,
+                    ),
+                  ),
+
+                // Sidebar geser dari kiri
+                AnimatedBuilder(
+                  animation: _sidebarAnim,
+                  builder: (context, child) {
+                    return Transform.translate(
+                      offset: Offset(kSidebarWidth * (_sidebarAnim.value - 1), 0),
+                      child: child,
+                    );
+                  },
+                  child: SizedBox(
+                    width: kSidebarWidth,
+                    height: double.infinity,
+                    child: sidebarWidget,
+                  ),
                 ),
               ],
+            )
+          // ── Desktop: sidebar di samping konten ──────────────────────────
+          : Row(
+              children: [
+                SizeTransition(
+                  sizeFactor: _sidebarAnim,
+                  axis: Axis.horizontal,
+                  child: sidebarWidget,
+                ),
+                Expanded(child: mainContent),
+              ],
             ),
-          ),
-        ],
-      ),
     );
   }
 
