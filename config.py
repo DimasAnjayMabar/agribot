@@ -52,9 +52,9 @@ CONFIG = {
     "neo4j_password":    "password",
 
     # ── Pipeline parameters ───────────────────────────────────────────────────
-    "chroma_retrieval_k":    30,   # kandidat dari ChromaDB (Tahap 1)
+    "chroma_retrieval_k":    15,   # kandidat dari ChromaDB (Tahap 1)
     "context_window":        2,    # window ±N chunk di Neo4j (Tahap 2)
-    "reranked_k":            10,   # kandidat setelah reranking (Tahap 3)
+    "reranked_k":            7,   # kandidat setelah reranking (Tahap 3)
     "max_chunks_per_jurnal": 5,    # maks chunk per jurnal di konteks akhir (Tahap 4)
     "final_context_k":       5,    # chunk yang masuk ke prompt LLM (Tahap 4)
 
