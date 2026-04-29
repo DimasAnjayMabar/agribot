@@ -86,6 +86,10 @@ class _ChatsPageState extends State<ChatsPage>
   final _scrollCtrl = ScrollController();
   final _inputFocus = FocusNode();
 
+  // ── Question Navigator ────────────────────────────────────────────────────
+  bool _questionNavOpen = false;
+  final Map<int, GlobalKey> _messageKeys = {};
+
   @override
   void initState() {
     super.initState();
@@ -297,6 +301,7 @@ class _ChatsPageState extends State<ChatsPage>
       _messages = msgs;
       _loadingMessages = false;
     });
+    _syncMessageKeys();
     _scrollToBottom();
 
     for (final msg in msgs.where((m) => m.isPending)) {
@@ -319,6 +324,7 @@ class _ChatsPageState extends State<ChatsPage>
       _activeChatId = null;
       _messages = [];
       _pendingQuestion = null;
+      _questionNavOpen = false;
     });
   }
 
@@ -328,6 +334,7 @@ class _ChatsPageState extends State<ChatsPage>
       _activeChatId = topic.id;
       _greeting = null;
       _pendingQuestion = null;
+      _questionNavOpen = false;
     });
     _fetchMessages(topic.id);
     if (MediaQuery.of(context).size.width < 768) _toggleSidebar();
@@ -369,6 +376,7 @@ class _ChatsPageState extends State<ChatsPage>
         _messages.add(msg);
         _sending = false;
       });
+      _syncMessageKeys();
       await _fetchTopics();
     } else if (replaceDetailId != null) {
       final idx = _messages.indexWhere((m) => m.id == replaceDetailId);
@@ -381,12 +389,14 @@ class _ChatsPageState extends State<ChatsPage>
         }
         _sending = false;
       });
+      _syncMessageKeys();
     } else {
       setState(() {
         _pendingQuestion = null;
         _messages.add(msg);
         _sending = false;
       });
+      _syncMessageKeys();
     }
 
     _scrollToBottom();
@@ -537,6 +547,27 @@ class _ChatsPageState extends State<ChatsPage>
     });
   }
 
+  void _scrollToMessage(int detailId) {
+    final key = _messageKeys[detailId];
+    if (key?.currentContext != null) {
+      Scrollable.ensureVisible(
+        key!.currentContext!,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOut,
+        alignment: 0.05,
+      );
+    }
+    setState(() => _questionNavOpen = false);
+  }
+
+  void _syncMessageKeys() {
+    final currentIds = _messages.map((m) => m.id).toSet();
+    _messageKeys.removeWhere((id, _) => !currentIds.contains(id));
+    for (final msg in _messages) {
+      _messageKeys.putIfAbsent(msg.id, () => GlobalKey());
+    }
+  }
+
   void _showSnack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -683,79 +714,481 @@ class _ChatsPageState extends State<ChatsPage>
       );
     }
 
+    final isMobile = _isMobileDevice(context);
     final itemCount = _messages.length + (_pendingQuestion != null ? 1 : 0);
 
-    return ListView.builder(
-      controller: _scrollCtrl,
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-      itemCount: itemCount,
-      itemBuilder: (_, i) {
-        if (_pendingQuestion != null && i == _messages.length) {
-          return _PendingBubble(question: _pendingQuestion!);
-        }
+    return Stack(
+      children: [
+        ListView.builder(
+          controller: _scrollCtrl,
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+          itemCount: itemCount,
+          itemBuilder: (_, i) {
+            if (_pendingQuestion != null && i == _messages.length) {
+              return _PendingBubble(question: _pendingQuestion!);
+            }
 
-        final msg = _messages[i];
+            final msg = _messages[i];
+            // Assign GlobalKey ke setiap message item
+            final itemKey = _messageKeys.putIfAbsent(msg.id, () => GlobalKey());
 
-        if (msg.isPending) {
-          return _PendingBubble(question: msg.question);
-        }
-
-        if (msg.isDisconnected) {
-          return _DisconnectedBubble(
-            message: msg,
-            onResend: () => _resendMessage(msg),
-          );
-        }
-
-        if (msg.isFailed) {
-          return _ErrorBubble(text: msg.response);
-        }
-
-        if (msg.isStopped) {
-          return ValueListenableBuilder<int?>(
-            valueListenable: _chatService.playingTtsId,
-            builder: (context, playingId, _) {
-              final isPlaying = playingId == msg.id;
-              return _StoppedBubble(
-                response: msg.response,
-                onRegenerate: () => _regenerateResponse(msg),
-                onCopyAnswer: () => _copyText(msg.response),
-                isPlayingTts: isPlaying,
-                onToggleTTS: () {
-                  if (isPlaying) {
-                    _stopTTS();
-                  } else {
-                    _playTTS(msg);
-                  }
-                },
+            if (msg.isPending) {
+              return KeyedSubtree(
+                key: itemKey,
+                child: _PendingBubble(question: msg.question),
               );
-            },
-          );
-        }
+            }
 
-        // Status 'done' — jawaban lengkap
-        return ValueListenableBuilder<int?>(
-          valueListenable: _chatService.playingTtsId,
-          builder: (context, playingId, _) {
-            final isPlaying = playingId == msg.id;
-            return _MessagePair(
-              message: msg,
-              onEdit: (newQ) => _editMessage(msg, newQ),
-              onRegenerate: () => _regenerateResponse(msg),
-              onCopyQuestion: () => _copyText(msg.question),
-              onCopyAnswer: () => _copyText(msg.response),
-              isPlayingTts: isPlaying,
-              onToggleTTS: () {
-                if (isPlaying) {
-                  _stopTTS();
-                } else {
-                  _playTTS(msg);
-                }
-              },
+            if (msg.isDisconnected) {
+              return KeyedSubtree(
+                key: itemKey,
+                child: _DisconnectedBubble(
+                  message: msg,
+                  onResend: () => _resendMessage(msg),
+                ),
+              );
+            }
+
+            if (msg.isFailed) {
+              return KeyedSubtree(
+                key: itemKey,
+                child: _ErrorBubble(text: msg.response),
+              );
+            }
+
+            if (msg.isStopped) {
+              return KeyedSubtree(
+                key: itemKey,
+                child: ValueListenableBuilder<int?>(
+                  valueListenable: _chatService.playingTtsId,
+                  builder: (context, playingId, _) {
+                    final isPlaying = playingId == msg.id;
+                    return _StoppedBubble(
+                      response: msg.response,
+                      onRegenerate: () => _regenerateResponse(msg),
+                      onCopyAnswer: () => _copyText(msg.response),
+                      isPlayingTts: isPlaying,
+                      onToggleTTS: () {
+                        if (isPlaying) {
+                          _stopTTS();
+                        } else {
+                          _playTTS(msg);
+                        }
+                      },
+                    );
+                  },
+                ),
+              );
+            }
+
+            // Status 'done' — jawaban lengkap
+            return KeyedSubtree(
+              key: itemKey,
+              child: ValueListenableBuilder<int?>(
+                valueListenable: _chatService.playingTtsId,
+                builder: (context, playingId, _) {
+                  final isPlaying = playingId == msg.id;
+                  return _MessagePair(
+                    message: msg,
+                    onEdit: (newQ) => _editMessage(msg, newQ),
+                    onRegenerate: () => _regenerateResponse(msg),
+                    onCopyQuestion: () => _copyText(msg.question),
+                    onCopyAnswer: () => _copyText(msg.response),
+                    isPlayingTts: isPlaying,
+                    onToggleTTS: () {
+                      if (isPlaying) {
+                        _stopTTS();
+                      } else {
+                        _playTTS(msg);
+                      }
+                    },
+                  );
+                },
+              ),
             );
           },
-        );
-      },
+        ),
+
+        // ── Question Navigator ──────────────────────────────────────────────
+        if (_messages.isNotEmpty)
+          _QuestionNavigator(
+            messages: _messages,
+            isOpen: _questionNavOpen,
+            onToggle: () => setState(() => _questionNavOpen = !_questionNavOpen),
+            onSelect: _scrollToMessage,
+          ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Question Navigator
+// ---------------------------------------------------------------------------
+
+class _QuestionNavigator extends StatefulWidget {
+  const _QuestionNavigator({
+    required this.messages,
+    required this.isOpen,
+    required this.onToggle,
+    required this.onSelect,
+  });
+
+  final List<ChatMessage> messages;
+  final bool isOpen;
+  final VoidCallback onToggle;
+  final void Function(int detailId) onSelect;
+
+  @override
+  State<_QuestionNavigator> createState() => _QuestionNavigatorState();
+}
+
+class _QuestionNavigatorState extends State<_QuestionNavigator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _animCtrl;
+  late final Animation<double> _panelAnim;
+
+  // Pagination
+  static const int _kPageSize = 5;
+  int _page = 0;
+
+  bool get _panelVisible => widget.isOpen;
+
+  List<ChatMessage> get _visibleMessages =>
+      widget.messages
+          .where((m) => m.question.isNotEmpty)
+          .toList();
+
+  int get _totalPages =>
+      (_visibleMessages.length / _kPageSize).ceil().clamp(1, 999);
+
+  List<ChatMessage> get _currentPageMessages {
+    final all = _visibleMessages;
+    final start = _page * _kPageSize;
+    final end = (start + _kPageSize).clamp(0, all.length);
+    return all.sublist(start, end);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _animCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    _panelAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
+  }
+
+  @override
+  void didUpdateWidget(_QuestionNavigator old) {
+    super.didUpdateWidget(old);
+    if (widget.messages.length != old.messages.length) {
+      final newTotal =
+          (_visibleMessages.length / _kPageSize).ceil().clamp(1, 999);
+      if (_page >= newTotal) _page = newTotal - 1;
+    }
+    if (widget.isOpen != old.isOpen) {
+      widget.isOpen ? _animCtrl.forward() : _animCtrl.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _animCtrl.dispose();
+    super.dispose();
+  }
+
+  void _prevPage() {
+    if (_page > 0) setState(() => _page--);
+  }
+
+  void _nextPage() {
+    if (_page < _totalPages - 1) setState(() => _page++);
+  }
+
+  Widget _buildItem(int i) {
+    final msg = _currentPageMessages[i];
+    final globalIdx = _page * _kPageSize + i;
+    final preview = msg.question.length > 38
+        ? '${msg.question.substring(0, 38)}...'
+        : msg.question;
+    return InkWell(
+      onTap: () => widget.onSelect(msg.id),
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 20,
+              child: Text(
+                '${globalIdx + 1}.',
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  color: const Color(0xFF16DB65),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                preview,
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  color: const Color(0xFFCCCCCC),
+                  height: 1.4,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      child: Stack(
+        children: [
+          // ── Barrier: tap di luar panel menutup navigator ──────────────
+          if (_panelVisible)
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: widget.onToggle,
+                behavior: HitTestBehavior.translucent,
+              ),
+            ),
+
+          // ── Strip + Panel ─────────────────────────────────────────────
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Strip Toggle Button
+                GestureDetector(
+                  onTap: widget.onToggle,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 16,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: _panelVisible
+                          ? const Color(0xFF16DB65).withOpacity(0.15)
+                          : const Color(0xFF1A1A1A).withOpacity(0.85),
+                      borderRadius: const BorderRadius.only(
+                        topRight: Radius.circular(8),
+                        bottomRight: Radius.circular(8),
+                      ),
+                      border: Border(
+                        top: BorderSide(
+                          color: _panelVisible
+                              ? const Color(0xFF16DB65).withOpacity(0.4)
+                              : const Color(0xFF2A2A2A),
+                        ),
+                        right: BorderSide(
+                          color: _panelVisible
+                              ? const Color(0xFF16DB65).withOpacity(0.4)
+                              : const Color(0xFF2A2A2A),
+                        ),
+                        bottom: BorderSide(
+                          color: _panelVisible
+                              ? const Color(0xFF16DB65).withOpacity(0.4)
+                              : const Color(0xFF2A2A2A),
+                        ),
+                      ),
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: List.generate(
+                          3,
+                          (i) => Container(
+                            width: 3,
+                            height: 3,
+                            margin: const EdgeInsets.symmetric(vertical: 2),
+                            decoration: BoxDecoration(
+                              color: _panelVisible
+                                  ? const Color(0xFF16DB65)
+                                  : const Color(0xFF555555),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Panel daftar pertanyaan
+                SizeTransition(
+                  sizeFactor: _panelAnim,
+                  axis: Axis.horizontal,
+                  child: FadeTransition(
+                    opacity: _panelAnim,
+                    child: Container(
+                      width: 200,
+                      height: 150,
+                      margin: const EdgeInsets.only(left: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F0F0F),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFF2A2A2A)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.4),
+                            blurRadius: 12,
+                            offset: const Offset(2, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          // Header
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 10, 8, 6),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.format_list_bulleted_rounded,
+                                  size: 13,
+                                  color: Color(0xFF16DB65),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Daftar Pertanyaan',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: const Color(0xFF16DB65),
+                                  ),
+                                ),
+                                const Spacer(),
+                                if (_totalPages > 1)
+                                  Text(
+                                    '${_page + 1}/$_totalPages',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 10,
+                                      color: const Color(0xFF555555),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const Divider(height: 1, color: Color(0xFF1A1A1A)),
+
+                          // List pertanyaan — hybrid height
+                          if (_visibleMessages.length > 3)
+                            Expanded(
+                              child: Scrollbar(
+                                thumbVisibility: true,
+                                child: ListView.builder(
+                                  padding: const EdgeInsets.symmetric(vertical: 4),
+                                  itemCount: _currentPageMessages.length,
+                                  itemBuilder: (_, i) => _buildItem(i),
+                                ),
+                              ),
+                            )
+                          else
+                            ListView.builder(
+                              shrinkWrap: true,
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              itemCount: _currentPageMessages.length,
+                              itemBuilder: (_, i) => _buildItem(i),
+                            ),
+
+                          // Pagination controls
+                          if (_totalPages > 1) ...[
+                            const Divider(
+                                height: 1, color: Color(0xFF1A1A1A)),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 6),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  _NavButton(
+                                    icon: Icons.chevron_left_rounded,
+                                    onTap: _page > 0 ? _prevPage : null,
+                                  ),
+                                  Text(
+                                    '${_page * _kPageSize + 1}–'
+                                    '${_page * _kPageSize + _currentPageMessages.length}'
+                                    ' / ${_visibleMessages.length}',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 10,
+                                      color: const Color(0xFF555555),
+                                    ),
+                                  ),
+                                  _NavButton(
+                                    icon: Icons.chevron_right_rounded,
+                                    onTap: _page < _totalPages - 1
+                                        ? _nextPage
+                                        : null,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NavButton extends StatelessWidget {
+  const _NavButton({required this.icon, this.onTap});
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 26,
+        height: 26,
+        decoration: BoxDecoration(
+          color: enabled
+              ? const Color(0xFF1A1A1A)
+              : const Color(0xFF111111),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: enabled
+                ? const Color(0xFF2A2A2A)
+                : const Color(0xFF1A1A1A),
+          ),
+        ),
+        child: Icon(
+          icon,
+          size: 16,
+          color: enabled
+              ? const Color(0xFFA3A3A3)
+              : const Color(0xFF333333),
+        ),
+      ),
     );
   }
 }
