@@ -4308,3 +4308,51 @@ neo4j.exceptions.ServiceUnavailable: Unable to retrieve routing information
 2026-04-29 12:39:29  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=42  detail_id=110  prev_summary=340 char
 2026-04-29 12:39:31  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=42  detail_id=110  (770 char)
 2026-04-29 12:39:32  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=42  detail_id=110
+2026-04-30 10:44:31  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-04-30 10:44:31  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-04-30 10:44:31  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-04-30 10:44:31  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(llama-3.3-70b-versatile)
+2026-04-30 10:44:31  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-04-30 10:44:43  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (11.66s)
+2026-04-30 10:44:43  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-04-30 10:44:53  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (9.90s)
+2026-04-30 10:44:53  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=llama-3.3-70b-versatile
+2026-04-30 10:44:53  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-04-30 10:44:53  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-04-30 10:44:59  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (5.54s)
+2026-04-30 10:44:59  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-04-30 10:44:59  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: D:\proyek magang\chatbot3\chroma_db
+2026-04-30 10:44:59  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (283 dokumen)
+2026-04-30 10:44:59  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-04-30 10:44:59  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-04-30 10:47:57  [36mINFO    [0m  [38;5;245magribot[0m  Membuat RAGPipeline baru...
+2026-04-30 10:47:57  [36mINFO    [0m  [38;5;245magribot[0m  Menginisialisasi RAGPipeline...
+2026-04-30 10:47:57  [36mINFO    [0m  [38;5;245magribot[0m  Memulai pemuatan model RAG...
+2026-04-30 10:47:57  [36mINFO    [0m  [38;5;245magribot[0m  Placement: embedding=cuda  reranker=cuda  nlp=cuda  llm=groq-api(llama-3.3-70b-versatile)
+2026-04-30 10:47:57  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding: intfloat/multilingual-e5-large → cuda
+2026-04-30 10:48:09  [36mINFO    [0m  [38;5;245magribot[0m  [1/4] Embedding siap  (11.94s)
+2026-04-30 10:48:09  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker: BAAI/bge-reranker-v2-m3 → cuda
+2026-04-30 10:48:19  [36mINFO    [0m  [38;5;245magribot[0m  [2/4] Reranker siap  (10.29s)
+2026-04-30 10:48:19  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq API client → model=llama-3.3-70b-versatile
+2026-04-30 10:48:20  [36mINFO    [0m  [38;5;245magribot[0m  [3/4] Groq client siap.
+2026-04-30 10:48:20  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] Memuat NLP: IndoBERT (ID) & BERT-NER (EN)...
+2026-04-30 10:48:25  [36mINFO    [0m  [38;5;245magribot[0m  [4/4] NLP siap  (5.79s)
+2026-04-30 10:48:25  [36mINFO    [0m  [38;5;245magribot[0m  ✓ Semua model berhasil dimuat.
+2026-04-30 10:48:25  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB: D:\proyek magang\chatbot3\chroma_db
+2026-04-30 10:48:26  [36mINFO    [0m  [38;5;245magribot[0m  ChromaDB siap — 'konten_isi'  (283 dokumen)
+2026-04-30 10:48:26  [36mINFO    [0m  [38;5;245magribot[0m  Neo4j: neo4j://127.0.0.1:7687
+2026-04-30 10:48:26  [36mINFO    [0m  [38;5;245magribot[0m  ✓ RAGPipeline siap.
+2026-04-30 10:49:59  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Disimpan → user_id=1  user_name='Manto'
+2026-04-30 10:49:59  [38;5;245mDEBUG   [0m  [38;5;245magribot[0m  [Intent] social — kata sosial terdeteksi
+2026-04-30 10:49:59  [36mINFO    [0m  [38;5;245magribot[0m  Intent terdeteksi: social — query='halo'
+2026-04-30 10:49:59  [36mINFO    [0m  [38;5;245magribot[0m  [Identity] Ditemukan user_id=1  (20 char)
+2026-04-30 10:49:59  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary ditemukan chat_id=4  (460 char)
+2026-04-30 10:49:59  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent window: 1 entry (dari 1 total) chat_id=4
+2026-04-30 10:49:59  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Hybrid memory siap — chat_id=4  (637 char)
+2026-04-30 10:49:59  [36mINFO    [0m  [38;5;245magribot[0m  [Social] Memory ditemukan (637 char)
+2026-04-30 10:49:59  [36mINFO    [0m  [38;5;245magribot[0m  [Social] Groq few-shot — lang=id  memory=ya  user_id=1  query='halo'
+2026-04-30 10:49:59  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] Generate — model=llama-3.3-70b-versatile  max_tokens=1024  temperature=0.50  top_p=0.95
+2026-04-30 10:50:00  [36mINFO    [0m  [38;5;245magribot[0m  [Groq] ✓ Selesai — 16 chunk  0.663s
+2026-04-30 10:50:00  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Merangkum summary baru — chat_id=4  detail_id=13  prev_summary=460 char
+2026-04-30 10:50:01  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Summary diperbarui → chat_id=4  detail_id=13  (854 char)
+2026-04-30 10:50:01  [36mINFO    [0m  [38;5;245magribot[0m  [Memory] Recent entry disimpan → chat_id=4  detail_id=13

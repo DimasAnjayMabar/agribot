@@ -13,6 +13,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt; // <-- Import STT
 
 // ---------------------------------------------------------------------------
 // Greetings
@@ -2307,6 +2308,9 @@ class _InputBar extends StatefulWidget {
 
 class _InputBarState extends State<_InputBar> {
   bool _hasText = false;
+  final stt.SpeechToText _speechToText = stt.SpeechToText();
+  bool _isListening = false;
+  bool _speechEnabled = false;
 
   @override
   void initState() {
@@ -2315,6 +2319,46 @@ class _InputBarState extends State<_InputBar> {
       final has = widget.controller.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
     });
+    _initSpeech();
+  }
+
+  void _initSpeech() async {
+    try {
+      _speechEnabled = await _speechToText.initialize(
+        onStatus: (status) {
+          if (status == 'done' || status == 'notListening') {
+            if (mounted) setState(() => _isListening = false);
+          }
+        },
+        onError: (error) {
+          if (mounted) setState(() => _isListening = false);
+        },
+      );
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('STT Error: $e');
+    }
+  }
+
+  void _startListening() async {
+    await _speechToText.listen(
+      onResult: (result) {
+        if (mounted) {
+          setState(() {
+            widget.controller.text = result.recognizedWords;
+            widget.controller.selection = TextSelection.collapsed(
+                offset: widget.controller.text.length);
+          });
+        }
+      },
+      localeId: 'id_ID', 
+    );
+    setState(() => _isListening = true);
+  }
+
+  void _stopListening() async {
+    await _speechToText.stop();
+    setState(() => _isListening = false);
   }
 
   void _showUploadDialog(BuildContext context) {
@@ -2362,7 +2406,6 @@ class _InputBarState extends State<_InputBar> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header
                   Row(
                     children: [
                       Container(
@@ -2404,7 +2447,6 @@ class _InputBarState extends State<_InputBar> {
                   ),
                   const SizedBox(height: 20),
  
-                  // Upload area
                   GestureDetector(
                     onTap: _isUploading ? null : pickFile,
                     child: Container(
@@ -2502,7 +2544,6 @@ class _InputBarState extends State<_InputBar> {
  
                   const SizedBox(height: 20),
  
-                  // Buttons
                   Row(
                     children: [
                       Expanded(
@@ -2610,14 +2651,15 @@ class _InputBarState extends State<_InputBar> {
             ),
           ),
           const SizedBox(width: 10),
+          
           Expanded(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 150),
+              // PERBAIKAN: HANYA MENCEGAT ENTER, BIARKAN SHIFT+ENTER LEWAT SECARA DEFAULT
               child: Shortcuts(
-                shortcuts: <ShortcutActivator, Intent>{
-                  // HANYA CEGAT ENTER SAJA. Shift+Enter dibiarkan lewat agar ditangani bawaan TextField
-                  const SingleActivator(LogicalKeyboardKey.enter): const SendMessageIntent(),
-                  const SingleActivator(LogicalKeyboardKey.numpadEnter): const SendMessageIntent(),
+                shortcuts: <LogicalKeySet, Intent>{
+                  LogicalKeySet(LogicalKeyboardKey.enter): const SendMessageIntent(),
+                  LogicalKeySet(LogicalKeyboardKey.numpadEnter): const SendMessageIntent(),
                 },
                 child: Actions(
                   actions: <Type, Action<Intent>>{
@@ -2677,6 +2719,40 @@ class _InputBarState extends State<_InputBar> {
             ),
           ),
           const SizedBox(width: 10),
+
+          // Tombol Mic STT
+          Padding(
+            padding: const EdgeInsets.only(bottom: 0),
+            child: SizedBox(
+              width: 48,
+              height: 48,
+              child: Tooltip(
+                message: _isListening ? 'Berhenti Merekam' : 'Input Suara',
+                child: ElevatedButton(
+                  onPressed: _speechEnabled
+                      ? (_isListening ? _stopListening : _startListening)
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isListening
+                        ? Colors.red.shade400
+                        : const Color(0xFF1A1A1A),
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Icon(
+                    _isListening ? Icons.mic_off_rounded : Icons.mic_none_rounded,
+                    color: _isListening ? Colors.white : const Color(0xFF888888),
+                    size: 20,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+
           SizedBox(
             width: 48,
             height: 48,
