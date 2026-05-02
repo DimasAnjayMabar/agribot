@@ -8,12 +8,12 @@ Alur kerja:
                  - Node Isi (sub_judul, halaman)
                  - Node Jurnal (judul, doi, penulis, tanggal_rilis)
                  - Neighbour chunks via relasi [:NEXT]
-  3. Reranking → BGE cross-encoder (CPU) menghitung skor relevansi
+  3. Reranking → BGE cross-encoder menghitung skor relevansi
                  teks gabungan (prev + target + next) vs query
   4. Filtering → top-N + diversifikasi sumber (max N chunk per jurnal)
   5. Memory    → Ambil memory summary dari ChromaDB (collection 'chat_memory')
                  jika ada, inject ke system prompt sebelum LLM
-  6. LLM       → Groq API (openai/gpt-oss-120b) via streaming SSE
+  6. LLM       → Groq API via streaming SSE
 
 Memory System:
   - Disimpan di ChromaDB collection 'chat_memory' terpisah dari 'konten_isi'

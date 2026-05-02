@@ -511,6 +511,7 @@ class ChatService {
   // Knowledge Upload Methods
   // -------------------------------------------------------------------------
 
+  /// Upload satu PDF — wrapper untuk kompatibilitas internal.
   Future<Map<String, dynamic>?> uploadPdf({
     required Uint8List fileBytes,
     required String fileName,
@@ -518,40 +519,55 @@ class ChatService {
     String? penulis,
     String? tahun,
   }) async {
-    try {
-      final formData = FormData.fromMap({
-        'file': MultipartFile.fromBytes(
-          fileBytes,
-          filename: fileName,
-          contentType: http.MediaType('application', 'pdf'),
-        ),
-        if (judul != null && judul.isNotEmpty) 'judul': judul,
-        if (penulis != null && penulis.isNotEmpty) 'penulis': penulis,
-        if (tahun != null && tahun.isNotEmpty) 'tahun': tahun,
-      });
+    final results = await uploadPdfs(
+      files: [PdfUploadFile(bytes: fileBytes, name: fileName)],
+    );
+    return results.isNotEmpty ? results.first : null;
+  }
 
-      final res = await _dio.post(
-        '/knowledge/upload',
-        data: formData,
-        options: Options(
-          headers: _authHeader,
-          sendTimeout: const Duration(minutes: 5),
-          receiveTimeout: const Duration(minutes: 5),
-        ),
-      );
+  /// Upload beberapa PDF sekaligus — satu request per file (backend tetap single).
+  /// Mengembalikan list hasil per file dalam urutan yang sama.
+  /// [onProgress] dipanggil setiap file selesai: (selesai, total).
+  Future<List<Map<String, dynamic>?>> uploadPdfs({
+    required List<PdfUploadFile> files,
+    void Function(int done, int total)? onProgress,
+  }) async {
+    final results = <Map<String, dynamic>?>[];
+    for (var i = 0; i < files.length; i++) {
+      final f = files[i];
+      try {
+        final formData = FormData.fromMap({
+          'file': MultipartFile.fromBytes(
+            f.bytes,
+            filename: f.name,
+            contentType: http.MediaType('application', 'pdf'),
+          ),
+          if (f.judul != null && f.judul!.isNotEmpty) 'judul': f.judul,
+          if (f.penulis != null && f.penulis!.isNotEmpty) 'penulis': f.penulis,
+          if (f.tahun != null && f.tahun!.isNotEmpty) 'tahun': f.tahun,
+        });
 
-      return res.data as Map<String, dynamic>;
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
-        _forceLogout();
+        final res = await _dio.post(
+          '/knowledge/upload',
+          data: formData,
+          options: Options(
+            headers: _authHeader,
+            sendTimeout: const Duration(minutes: 5),
+            receiveTimeout: const Duration(minutes: 5),
+          ),
+        );
+        results.add(res.data as Map<String, dynamic>);
+      } on DioException catch (e) {
+        if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
+          _forceLogout();
+        }
+        results.add(e.response?.data as Map<String, dynamic>?);
+      } catch (_) {
+        results.add(null);
       }
-      if (e.response?.data != null) {
-        return e.response!.data as Map<String, dynamic>;
-      }
-      return null;
-    } catch (_) {
-      return null;
+      onProgress?.call(i + 1, files.length);
     }
+    return results;
   }
 
   // -------------------------------------------------------------------------
@@ -584,4 +600,23 @@ class SseTracker {
     sseSub?.cancel();
     sseSub = null;
   }
+}
+// ---------------------------------------------------------------------------
+// Model untuk Multi-file Upload
+// ---------------------------------------------------------------------------
+
+class PdfUploadFile {
+  final Uint8List bytes;
+  final String name;
+  final String? judul;
+  final String? penulis;
+  final String? tahun;
+
+  const PdfUploadFile({
+    required this.bytes,
+    required this.name,
+    this.judul,
+    this.penulis,
+    this.tahun,
+  });
 }

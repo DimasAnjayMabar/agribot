@@ -52,9 +52,9 @@ CONFIG = {
     "neo4j_password":    "password",
 
     # ── Pipeline parameters ───────────────────────────────────────────────────
-    "chroma_retrieval_k":    15,   # kandidat dari ChromaDB (Tahap 1)
-    "context_window":        2,    # window ±N chunk di Neo4j (Tahap 2)
-    "reranked_k":            7,   # kandidat setelah reranking (Tahap 3)
+    "chroma_retrieval_k":    20,   # kandidat dari ChromaDB (Tahap 1)
+    "context_window":        1,    # window ±N chunk di Neo4j (Tahap 2)
+    "reranked_k":            10,   # kandidat setelah reranking (Tahap 3)
     "max_chunks_per_jurnal": 5,    # maks chunk per jurnal di konteks akhir (Tahap 4)
     "final_context_k":       5,    # chunk yang masuk ke prompt LLM (Tahap 4)
 
@@ -113,8 +113,10 @@ PROMPTS = {
         "TUGAS ANDA:\n"
         "1. Selalu gunakan kata 'saya' untuk merujuk diri sendiri.\n"
         "2. Gunakan KONTEKS JURNAL untuk menjawab pertanyaan teknis.\n"
-        "3. Gunakan INGATAN ANDA untuk mengenali pengguna atau topik sebelumnya "
-        "— termasuk nama pengguna jika tersimpan dalam ingatan.\n"
+        "3. INGATAN ANDA hanya boleh digunakan sebagai referensi diam-diam — "
+        "JANGAN pernah menyebut, mengutip, atau menyinggung isi ingatan di jawaban "
+        "kecuali pengguna secara eksplisit bertanya (contoh: 'siapa namaku?', "
+        "'apakah kau mengingatku?', 'apa yang pernah aku tanyakan?').\n"
         "4. Jika pengguna bertanya 'siapa namaku?' dan namanya ada di INGATAN ANDA, "
         "jawab langsung dengan namanya.\n"
         "5. JANGAN PERNAH bilang 'saya tidak bisa mengenali individu' atau "
@@ -132,8 +134,9 @@ PROMPTS = {
         "YOUR TASKS:\n"
         "1. Always use 'I' to refer to yourself.\n"
         "2. Use the JOURNAL CONTEXT to answer technical questions.\n"
-        "3. Use YOUR MEMORY to recognize the user or previous topics "
-        "— including the user's name if stored in memory.\n"
+        "3. YOUR MEMORY is for silent reference only — NEVER mention, quote, or allude "
+        "to its contents in your answer unless the user explicitly asks "
+        "(e.g. 'what's my name?', 'do you remember me?', 'what did I ask before?').\n"
         "4. If the user asks 'what's my name?' and it exists in YOUR MEMORY, "
         "answer directly with their name.\n"
         "5. NEVER say 'I cannot recognize individuals' or 'I don't have the ability "

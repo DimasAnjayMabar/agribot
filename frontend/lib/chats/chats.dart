@@ -404,24 +404,43 @@ class _ChatsPageState extends State<ChatsPage>
     _startTracking(msg.id);
   }
 
-  Future<void> _uploadPdf(Uint8List bytes, String fileName) async {
-    final result = await _chatService.uploadPdf(
-      fileBytes: bytes,
-      fileName:  fileName,
+  Future<void> _uploadPdfs(
+    List<PdfUploadFile> files, {
+    void Function(int done, int total)? onProgress,
+  }) async {
+    final results = await _chatService.uploadPdfs(
+      files: files,
+      onProgress: onProgress,
     );
     if (!mounted) return;
-    final success = result?['success'] == true;
-    final message = success
-        ? 'PDF "$fileName" diterima dan sedang diproses. Mungkin perlu beberapa saat untuk bot bisa menjawab pertanyaan terkait informasi baru'
-        : (result?['detail'] as String? ??
-           result?['message'] as String? ??
-           'Gagal mengunggah file. Coba lagi.');
+
+    final successCount = results.where((r) => r?['success'] == true).length;
+    final failCount    = results.length - successCount;
+
+    String message;
+    Color  color;
+    if (failCount == 0) {
+      message = successCount == 1
+          ? 'PDF "\${files.first.name}" diterima dan sedang diproses.'
+          : '\$successCount PDF berhasil diterima dan sedang diproses.';
+      color = const Color(0xFF16DB65);
+    } else if (successCount == 0) {
+      final firstFail = results.firstWhere((r) => r?['success'] != true);
+      message = firstFail?['detail'] as String? ??
+                firstFail?['message'] as String? ??
+                'Gagal mengunggah semua file.';
+      color = const Color(0xFFFF4444);
+    } else {
+      message = '\$successCount berhasil, \$failCount gagal. Periksa ulang file yang gagal.';
+      color = const Color(0xFFFFAA00);
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: GoogleFonts.poppins(fontSize: 13)),
-        backgroundColor:
-            success ? const Color(0xFF16DB65) : const Color(0xFFFF4444),
+        backgroundColor: color,
         behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
@@ -616,7 +635,7 @@ class _ChatsPageState extends State<ChatsPage>
           focusNode: _inputFocus,
           sending: _sending,
           onSend: () => _sendMessage(),
-          onUploadPdf: _uploadPdf,
+          onUploadPdfs: _uploadPdfs,
           pendingDetailId: pendingDetailId,
           onStop: pendingDetailId != null
               ? () => _stopGeneration(pendingDetailId)
@@ -2162,12 +2181,14 @@ class _UserBubble extends StatelessWidget {
           ),
           border: Border.all(color: const Color(0xFF16DB65).withOpacity(0.25)),
         ),
-        child: Text(
-          text,
-          style: GoogleFonts.poppins(
-            fontSize: 14,
-            color: Colors.white,
-            height: 1.6,
+        child: SelectionArea(
+          child: Text(
+            text,
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              color: Colors.white,
+              height: 1.6,
+            ),
           ),
         ),
       ),
@@ -2199,14 +2220,16 @@ class _AiBubble extends StatelessWidget {
               ),
               border: Border.all(color: const Color(0xFF1A1A1A)),
             ),
-            child: MarkdownBody(
-              data: text,
-              selectable: true,
-              extensionSet: md.ExtensionSet.gitHubWeb,
-              onTapLink: (text, href, title) {
-                if (href != null) launchUrl(Uri.parse(href));
-              },
-              styleSheet: _markdownStyleSheet(),
+            child: SelectionArea(
+              child: MarkdownBody(
+                data: text,
+                selectable: false,
+                extensionSet: md.ExtensionSet.gitHubWeb,
+                onTapLink: (text, href, title) {
+                  if (href != null) launchUrl(Uri.parse(href));
+                },
+                styleSheet: _markdownStyleSheet(),
+              ),
             ),
           ),
         ),
@@ -2289,7 +2312,7 @@ class _InputBar extends StatefulWidget {
     required this.focusNode,
     required this.sending,
     required this.onSend,
-    required this.onUploadPdf,
+    required this.onUploadPdfs,
     this.pendingDetailId,
     this.onStop,
   });
@@ -2298,7 +2321,7 @@ class _InputBar extends StatefulWidget {
   final FocusNode focusNode;
   final bool sending;
   final VoidCallback onSend;
-  final Future<void> Function(Uint8List bytes, String filename) onUploadPdf;
+  final Future<void> Function(List<PdfUploadFile> files, {void Function(int done, int total)? onProgress}) onUploadPdfs;
   final int? pendingDetailId;
   final VoidCallback? onStop;
 
@@ -2362,246 +2385,357 @@ class _InputBarState extends State<_InputBar> {
   }
 
   void _showUploadDialog(BuildContext context) {
-    String?    _selectedFileName;
-    Uint8List? _selectedFileBytes;
-    bool       _isUploading = false;
- 
+    // State multi-file
+    List<PdfUploadFile> _selectedFiles = [];
+    bool  _isUploading = false;
+    int   _uploadDone  = 0;
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
- 
-          Future<void> pickFile() async {
+
+          // ── Pilih file (multi-select, Ctrl+klik / Shift+klik di desktop) ──
+          Future<void> pickFiles() async {
             final result = await FilePicker.platform.pickFiles(
               type: FileType.custom,
               allowedExtensions: ['pdf'],
+              allowMultiple: true,   // ← multi-select aktif
               withData: true,
             );
-            if (result == null) return;
-            final picked = result.files.single;
-            if (picked.bytes == null) return;
+            if (result == null || result.files.isEmpty) return;
+
+            final newFiles = result.files
+                .where((f) => f.bytes != null)
+                .map((f) => PdfUploadFile(bytes: f.bytes!, name: f.name))
+                .toList();
+
             setDialogState(() {
-              _selectedFileName  = picked.name;
-              _selectedFileBytes = picked.bytes;
+              // Gabungkan, hindari nama duplikat
+              final existingNames = _selectedFiles.map((f) => f.name).toSet();
+              for (final f in newFiles) {
+                if (!existingNames.contains(f.name)) {
+                  _selectedFiles.add(f);
+                  existingNames.add(f.name);
+                }
+              }
             });
           }
- 
+
+          // ── Hapus satu file dari antrian ──────────────────────────────────
+          void removeFile(int index) {
+            setDialogState(() => _selectedFiles.removeAt(index));
+          }
+
+          // ── Upload semua file satu per satu ───────────────────────────────
           Future<void> doUpload() async {
-            if (_selectedFileBytes == null || _selectedFileName == null) return;
-            setDialogState(() => _isUploading = true);
-            await widget.onUploadPdf(_selectedFileBytes!, _selectedFileName!);
+            if (_selectedFiles.isEmpty) return;
+            setDialogState(() {
+              _isUploading = true;
+              _uploadDone  = 0;
+            });
+
+            await widget.onUploadPdfs(
+              _selectedFiles,
+              onProgress: (done, total) {
+                if (ctx.mounted) {
+                  setDialogState(() => _uploadDone = done);
+                }
+              },
+            );
+
             if (ctx.mounted) Navigator.of(ctx).pop();
           }
- 
+
+          final hasFiles = _selectedFiles.isNotEmpty;
+
           return Dialog(
             backgroundColor: const Color(0xFF111111),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
               side: const BorderSide(color: Color(0xFF1A1A1A)),
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF16DB65).withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480, maxHeight: 600),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+
+                    // ── Header ─────────────────────────────────────────────
+                    Row(
+                      children: [
+                        Container(
+                          width: 36, height: 36,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF16DB65).withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.auto_stories_rounded,
+                              color: Color(0xFF16DB65), size: 18),
                         ),
-                        child: const Icon(Icons.auto_stories_rounded,
-                            color: Color(0xFF16DB65), size: 18),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Tambah Pengetahuan Bot',
-                          style: GoogleFonts.poppins(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Tambah Pengetahuan Bot',
+                            style: GoogleFonts.poppins(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
-                      ),
-                      if (!_isUploading)
-                        GestureDetector(
-                          onTap: () => Navigator.of(ctx).pop(),
-                          child: const Icon(Icons.close_rounded,
-                              color: Color(0xFF666666), size: 20),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Tambahkan pengetahuan bot di sini',
-                    style: GoogleFonts.poppins(
-                      fontSize: 13,
-                      color: const Color(0xFFA3A3A3),
+                        if (!_isUploading)
+                          GestureDetector(
+                            onTap: () => Navigator.of(ctx).pop(),
+                            child: const Icon(Icons.close_rounded,
+                                color: Color(0xFF666666), size: 20),
+                          ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 20),
- 
-                  GestureDetector(
-                    onTap: _isUploading ? null : pickFile,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 24, horizontal: 16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0D0D0D),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _selectedFileName != null
-                              ? const Color(0xFF16DB65).withOpacity(0.5)
-                              : const Color(0xFF2A2A2A),
-                        ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Pilih satu atau beberapa file PDF sekaligus',
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        color: const Color(0xFFA3A3A3),
                       ),
-                      child: Column(
-                        children: [
-                          if (_isUploading)
-                            const SizedBox(
-                              width: 36, height: 36,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: Color(0xFF16DB65),
-                              ),
-                            )
-                          else
+                    ),
+                    const SizedBox(height: 16),
+
+                    // ── Drop zone / tombol pilih ───────────────────────────
+                    GestureDetector(
+                      onTap: _isUploading ? null : pickFiles,
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 20, horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0D0D0D),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: hasFiles
+                                ? const Color(0xFF16DB65).withOpacity(0.4)
+                                : const Color(0xFF2A2A2A),
+                            width: hasFiles ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
                             Icon(
-                              _selectedFileName != null
+                              hasFiles
                                   ? Icons.picture_as_pdf_rounded
                                   : Icons.upload_file_rounded,
-                              color: _selectedFileName != null
+                              color: hasFiles
                                   ? const Color(0xFF16DB65)
                                   : const Color(0xFF555555),
-                              size: 36,
+                              size: 32,
                             ),
-                          const SizedBox(height: 10),
-                          if (_isUploading) ...[
+                            const SizedBox(height: 8),
                             Text(
-                              'Mengunggah "$_selectedFileName"...',
+                              hasFiles
+                                  ? 'Ketuk untuk menambah lebih banyak file'
+                                  : 'Ketuk untuk memilih file PDF',
                               style: GoogleFonts.poppins(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w500,
-                                color: const Color(0xFF16DB65),
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Mohon tunggu, jangan tutup dialog ini',
-                              style: GoogleFonts.poppins(
-                                fontSize: 11,
-                                color: const Color(0xFF666666),
-                              ),
-                            ),
-                          ] else if (_selectedFileName != null) ...[
-                            Text(
-                              _selectedFileName!,
-                              style: GoogleFonts.poppins(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                                color: const Color(0xFF16DB65),
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Ketuk untuk mengganti file',
-                              style: GoogleFonts.poppins(
-                                fontSize: 11,
-                                color: const Color(0xFF666666),
-                              ),
-                            ),
-                          ] else ...[
-                            Text(
-                              'Ketuk untuk memilih file PDF',
-                              style: GoogleFonts.poppins(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                                color: const Color(0xFF888888),
+                                color: hasFiles
+                                    ? const Color(0xFF16DB65)
+                                    : const Color(0xFF888888),
                               ),
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Hanya file .pdf yang didukung',
+                              kIsWeb
+                                  ? 'Tahan Ctrl untuk pilih beberapa file'
+                                  : 'Hanya file .pdf yang didukung',
                               style: GoogleFonts.poppins(
                                 fontSize: 11,
                                 color: const Color(0xFF555555),
                               ),
                             ),
                           ],
-                        ],
-                      ),
-                    ),
-                  ),
- 
-                  const SizedBox(height: 20),
- 
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextButton(
-                          onPressed: _isUploading
-                              ? null
-                              : () => Navigator.of(ctx).pop(),
-                          style: TextButton.styleFrom(
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10)),
-                          ),
-                          child: Text(
-                            'Batal',
-                            style: GoogleFonts.poppins(
-                              fontSize: 13,
-                              color: _isUploading
-                                  ? const Color(0xFF444444)
-                                  : const Color(0xFF888888),
-                            ),
-                          ),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed:
-                              (_selectedFileName != null && !_isUploading)
-                                  ? doUpload
-                                  : null,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                (_selectedFileName != null && !_isUploading)
-                                    ? const Color(0xFF16DB65)
-                                    : const Color(0xFF1A1A1A),
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10)),
-                            elevation: 0,
+                    ),
+
+                    // ── Daftar file yang dipilih ───────────────────────────
+                    if (hasFiles) ...[
+                      const SizedBox(height: 12),
+                      // Progress upload saat sedang upload
+                      if (_isUploading) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Mengunggah $_uploadDone dari ${_selectedFiles.length} file...',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  color: const Color(0xFF16DB65),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              LinearProgressIndicator(
+                                value: _selectedFiles.isEmpty
+                                    ? 0
+                                    : _uploadDone / _selectedFiles.length,
+                                backgroundColor: const Color(0xFF1A1A1A),
+                                color: const Color(0xFF16DB65),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ],
                           ),
-                          child: Text(
-                            'Unggah',
-                            style: GoogleFonts.poppins(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: (_selectedFileName != null &&
-                                      !_isUploading)
-                                  ? Colors.black
-                                  : const Color(0xFF555555),
-                            ),
-                          ),
+                        ),
+                      ],
+                      // List file
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 200),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: _selectedFiles.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 6),
+                          itemBuilder: (_, i) {
+                            final f = _selectedFiles[i];
+                            final isDone = _isUploading && i < _uploadDone;
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0D0D0D),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: isDone
+                                      ? const Color(0xFF16DB65).withOpacity(0.4)
+                                      : const Color(0xFF1E1E1E),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    isDone
+                                        ? Icons.check_circle_outline_rounded
+                                        : Icons.picture_as_pdf_rounded,
+                                    size: 16,
+                                    color: isDone
+                                        ? const Color(0xFF16DB65)
+                                        : const Color(0xFF888888),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      f.name,
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 12,
+                                        color: isDone
+                                            ? const Color(0xFF16DB65)
+                                            : Colors.white,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${(f.bytes.length / 1024).toStringAsFixed(0)} KB',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 11,
+                                      color: const Color(0xFF555555),
+                                    ),
+                                  ),
+                                  if (!_isUploading) ...[
+                                    const SizedBox(width: 6),
+                                    GestureDetector(
+                                      onTap: () => removeFile(i),
+                                      child: const Icon(
+                                        Icons.close_rounded,
+                                        size: 14,
+                                        color: Color(0xFF555555),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            );
+                          },
                         ),
                       ),
                     ],
-                  ),
-                ],
+
+                    const SizedBox(height: 16),
+
+                    // ── Tombol Batal / Unggah ──────────────────────────────
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: _isUploading
+                                ? null
+                                : () => Navigator.of(ctx).pop(),
+                            style: TextButton.styleFrom(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: Text(
+                              'Batal',
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                color: _isUploading
+                                    ? const Color(0xFF444444)
+                                    : const Color(0xFF888888),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: (hasFiles && !_isUploading)
+                                ? doUpload
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: (hasFiles && !_isUploading)
+                                  ? const Color(0xFF16DB65)
+                                  : const Color(0xFF1A1A1A),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                              elevation: 0,
+                            ),
+                            child: _isUploading
+                                ? const SizedBox(
+                                    width: 16, height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.black,
+                                    ),
+                                  )
+                                : Text(
+                                    hasFiles
+                                        ? 'Unggah (${_selectedFiles.length})'
+                                        : 'Unggah',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: (hasFiles && !_isUploading)
+                                          ? Colors.black
+                                          : const Color(0xFF555555),
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           );
